@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global dark theme styles */
+html,
+body,
+#root {
+	height: 100%;
+}
+
+html {
+	color-scheme: dark;
+}
+
+body {
+	@apply bg-zinc-950 text-zinc-100;
+}
