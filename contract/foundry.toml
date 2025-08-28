@@ -15,6 +15,7 @@ solc = "0.8.30"
 src = "src"
 test = "test"
 fs_permissions = [{ access = "read", path = "./" }]
+via_ir = true
 
 [profile.ci]
 fuzz = { runs = 10_000 }

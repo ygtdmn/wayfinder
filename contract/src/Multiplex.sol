@@ -6,31 +6,40 @@ import { Lifebuoy } from "solady/utils/Lifebuoy.sol";
 import { SSTORE2 } from "solady/utils/SSTORE2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { LibZip } from "solady/utils/LibZip.sol";
-import { InflateLib } from "./lib/InflateLib.sol";
-import { AdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/AdminControl.sol";
-import { ICreatorExtensionTokenURI } from
-    "@manifoldxyz/creator-core-solidity/contracts/extensions/ICreatorExtensionTokenURI.sol";
-import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { IERC1155CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
-import { IERC721CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC721CreatorCore.sol";
-import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
-import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import { Ownable } from "solady/auth/Ownable.sol";
+import { IAdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/IAdminControl.sol";
 
 /**
  * @title Multiplex
  * @author Yigit Duman (@yigitduman)
- * @notice A Manifold Creator Extension for minting tokens with multiple media pointers.
+ * @notice A universal URI distribution and management system for any contract
  */
-contract Multiplex is AdminControl, ICreatorExtensionTokenURI, Lifebuoy {
+contract Multiplex is Ownable, Lifebuoy {
     /*//////////////////////////////////////////////////////////////
                                 ENUMS
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Display modes for token rendering
     enum DisplayMode {
-        IMAGE, // Shows selected artwork as static image
+        DIRECT_FILE, // Shows selected artwork as static file
         HTML // Shows interactive HTML experience with all artworks
+
+    }
+
+    /// @notice Thumbnail storage type discriminator
+    enum ThumbnailKind {
+        ON_CHAIN, // Stored on-chain using SSTORE2
+        OFF_CHAIN // Referenced by URI array
+
+    }
+
+    /// @notice Ownership check style
+    enum OwnershipStyle {
+        OWNER_OF, // Returns address, check if == msg.sender (e.g., ownerOf(tokenId))
+        BALANCE_OF_ERC721, // Returns uint256, check if > 0 (e.g., balanceOf(address))
+        BALANCE_OF_ERC1155, // Returns uint256, check if > 0 (e.g., balanceOf(address, tokenId))
+        IS_APPROVED_FOR_ALL, // Returns bool, check if == true (e.g., isApprovedForAll(address, address))
+        SIMPLE_BOOL // Returns bool, check if == true (e.g., isOwner(address))
 
     }
 
@@ -38,90 +47,80 @@ contract Multiplex is AdminControl, ICreatorExtensionTokenURI, Lifebuoy {
                             DATA STRUCTURES  
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Compressed file storage structure
-    struct File {
+    /// @notice Artwork configuration and URIs
+    struct Artwork {
+        string[] artistUris; // Artist-curated artwork URIs
+        string[] collectorUris; // Collector-added artwork URIs (HTML mode only)
+        string mimeType; // MIME type of the artwork
+        string fileHash; // Hash of the artwork for verification
+        bool isAnimationUri; // If true, artwork goes in animation_url
+        uint256 selectedArtistUriIndex; // 0-based index for selected artist URI
+    }
+
+    /// @notice Permission flags for artist and collector actions (bit-packed)
+    struct Permissions {
+        uint16 flags; // Bit-packed permissions
+    }
+
+    // Permission bit positions
+    uint16 constant ARTIST_UPDATE_THUMB = 2 ** 0;
+    uint16 constant ARTIST_UPDATE_META = 2 ** 1;
+    uint16 constant ARTIST_CHOOSE_URIS = 2 ** 2;
+    uint16 constant ARTIST_ADD_REMOVE = 2 ** 3;
+    uint16 constant ARTIST_CHOOSE_THUMB = 2 ** 4;
+    uint16 constant ARTIST_UPDATE_MODE = 2 ** 5;
+    uint16 constant ARTIST_UPDATE_TEMPLATE = 2 ** 6;
+    uint16 constant COLLECTOR_CHOOSE_URIS = 2 ** 7;
+    uint16 constant COLLECTOR_ADD_REMOVE = 2 ** 8;
+    uint16 constant COLLECTOR_CHOOSE_THUMB = 2 ** 9;
+    uint16 constant COLLECTOR_UPDATE_MODE = 2 ** 10;
+
+    /// @notice On-chain thumbnail stored using SSTORE2
+    struct OnChainThumbnail {
         string mimeType; // MIME type (e.g., "image/webp")
         address[] chunks; // SSTORE2 storage addresses
-        uint256 length; // Original uncompressed file length
         bool zipped; // True if compressed with FastLZ
-        bool deflated; // True if compressed with DEFLATE
     }
 
-    /// @notice Immutable token properties set at mint time
-    struct ImmutableProperties {
-        string imageHash; // Hash of the artwork for verification
-        string imageMimeType; // MIME type of the artwork
-        bool isAnimationUri; // If true, artwork goes in animation_url
-        bool useOffchainThumbnail; // If true, use off-chain thumbnail in metadata
-        bool allowCollectorAddArtwork; // If true, collector can add artwork URIs
-        bool allowCollectorSelectArtistArtwork; // If true, collector can select artist artwork
-        bool allowCollectorSelectArtistThumbnail; // If true, collector can select artist thumbnail
-        bool allowCollectorToggleDisplayMode; // If true, collector can change display mode
+    /// @notice Off-chain thumbnail referenced by URIs
+    struct OffChainThumbnail {
+        string[] uris; // Available thumbnail URIs
+        uint256 selectedUriIndex; // 0-based index
     }
 
-    /// @notice Off-chain URI lists
-    struct OffChainData {
-        string[] artistArtworkUris; // Artist-curated artwork URIs
-        string[] collectorArtworkUris; // Collector-added artwork URIs (HTML mode only)
-        string[] artistThumbnailUris; // Artist-curated thumbnail URIs
+    /// @notice Unified thumbnail structure
+    struct Thumbnail {
+        ThumbnailKind kind; // Whether thumbnail is on-chain or off-chain
+        OnChainThumbnail onChain; // On-chain thumbnail data
+        OffChainThumbnail offChain; // Off-chain thumbnail data
     }
 
-    /// @notice Current selection indices
-    struct Selection {
-        uint256 selectedArtistArtworkIndex; // 1-based index (0 = invalid/none)
-        uint256 selectedArtistThumbnailIndex; // 1-based index (0 = use on-chain)
+    /// @notice Ownership check configuration
+    struct OwnershipConfig {
+        bytes4 selector; // Function selector (e.g., OwnershipSelectors.OWNER_OF, OwnershipSelectors.BALANCE_OF, or
+            // custom)
+        OwnershipStyle style; // How to interpret the result
     }
 
     /// @notice Complete token data
     struct Token {
-        string metadata; // JSON metadata (without image/animation_url)
-        File onChainThumbnail; // On-chain thumbnail data
+        string metadata; // JSON metadata (that contains name, description, traits)
+        Thumbnail thumbnail; // Unified thumbnail data
+        Artwork artwork; // Artwork configuration and URIs
+        Permissions permissions; // Permission flags for artist and collector actions
         DisplayMode displayMode; // Current display mode
-        ImmutableProperties immutableProperties; // Properties that cannot change after mint
-        OffChainData offchain; // Off-chain URI lists
-        Selection selection; // Current selections
-        bool metadataLocked; // If true, metadata cannot be updated
-        bool thumbnailLocked; // If true, thumbnail cannot be updated
+        OwnershipConfig ownership; // How to check token ownership
+        address[] htmlTemplatePointers; // Custom HTML template chunks for this token (empty = use default)
     }
 
-    /// @notice Parameters for minting new tokens (shared between ERC721 and ERC1155)
-    struct MintParams {
-        string metadata; // Initial metadata JSON
-        File onChainThumbnail; // Thumbnail file configuration
-        DisplayMode initialDisplayMode; // Starting display mode
-        ImmutableProperties immutableProperties; // Immutable properties
-        string[] seedArtistArtworkUris; // Initial artist artwork URIs
-        string[] seedArtistThumbnailUris; // Initial artist thumbnail URIs
-    }
-
-    /// @notice Parameters for ERC1155 minting to multiple addresses
-    struct MintERC1155Params {
-        MintParams baseParams; // Base minting parameters
-        address[] recipients; // Addresses to mint to
-        uint256[] quantities; // Quantities for each recipient
-    }
-
-    /// @notice Parameters for ERC721 minting to multiple addresses
-    struct MintERC721Params {
-        MintParams baseParams; // Base minting parameters
-        address[] recipients; // Addresses to mint to (quantity is always 1 each)
-    }
-
-    /// @notice Parameters for updating token properties
-    struct UpdateParams {
-        // Admin-only updates
-        string metadata; // New metadata (empty string = no change)
-        bool updateMetadata; // Flag to update metadata
-        bytes[] thumbnailChunks; // New thumbnail chunks
-        File thumbnailOptions; // Thumbnail file options
-        bool updateThumbnail; // Flag to update thumbnail
-        // Owner or admin updates (subject to immutable permissions)
-        DisplayMode displayMode; // New display mode
-        bool updateDisplayMode; // Flag to update display mode
-        uint256 selectedArtistArtworkIndex; // New artist artwork selection
-        bool updateSelectedArtistArtwork; // Flag to update selection
-        uint256 selectedArtistThumbnailIndex; // New artist thumbnail selection
-        bool updateSelectedArtistThumbnail; // Flag to update selection
+    /// @notice Configuration for initializing token data
+    struct InitConfig {
+        string metadata;
+        Artwork artwork;
+        Thumbnail thumbnail;
+        DisplayMode displayMode;
+        Permissions permissions;
+        OwnershipConfig ownership;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -131,8 +130,8 @@ contract Multiplex is AdminControl, ICreatorExtensionTokenURI, Lifebuoy {
     /// @notice Mapping: creator contract => tokenId => token data
     mapping(address => mapping(uint256 => Token)) public tokenData;
 
-    /// @notice HTML template for rendering interactive experiences
-    string private htmlTemplate;
+    /// @notice HTML template stored using SSTORE2 for gas efficiency
+    address private defaultHtmlTemplatePointer;
 
     /*//////////////////////////////////////////////////////////////
                             CUSTOM ERRORS
@@ -141,33 +140,32 @@ contract Multiplex is AdminControl, ICreatorExtensionTokenURI, Lifebuoy {
     error WalletNotAdmin();
     error NotTokenOwner();
     error NotTokenOwnerOrAdmin();
-    error CreatorMustImplementCreatorCoreInterface();
-    error AlreadyLocked();
+    error InvalidOwnershipFunction();
     error InvalidIndexRange();
-    error InvalidCompressionFlags();
-    error CollectorAddingArtworkDisabled();
-    error CollectorSelectingArtworkDisabled();
-    error CollectorSelectingThumbnailDisabled();
-    error CollectorTogglingDisplayModeDisabled();
+    error ArtistPermissionRevoked();
+    error CollectorPermissionDenied();
+    error InvalidThumbnailKind();
+    error OnChainThumbnailEmpty();
+    error InvalidMetadata();
+    error InvalidArtworkUris();
+    error InvalidMimeType();
+    error InvalidFileHash();
+    error InvalidSelectedArtistUriIndex();
+    error InvalidSelectedThumbnailUriIndex();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event TokenMinted(address indexed creator, uint256 indexed tokenId, address indexed recipient, uint256 quantity);
-    event BatchTokensMinted(address indexed creator, uint256 indexed firstTokenId, uint256 totalMinted);
+    event TokenDataInitialized(address indexed creator, uint256 indexed tokenId);
     event MetadataUpdated(address indexed creator, uint256 indexed tokenId);
-    event MetadataLocked(address indexed creator, uint256 indexed tokenId);
-    event ThumbnailUpdated(address indexed creator, uint256 indexed tokenId, uint256 chunkCount);
-    event ThumbnailLocked(address indexed creator, uint256 indexed tokenId);
+    event ThumbnailUpdated(address indexed creator, uint256 indexed tokenId);
     event DisplayModeUpdated(address indexed creator, uint256 indexed tokenId, DisplayMode displayMode);
-    event SelectedArtistArtworkChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
-    event SelectedArtistThumbnailChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
-    event ArtistArtworkUrisAdded(address indexed creator, uint256 indexed tokenId, uint256 count);
-    event ArtistArtworkUriRemoved(address indexed creator, uint256 indexed tokenId, uint256 index);
-    event ArtistThumbnailUrisAdded(address indexed creator, uint256 indexed tokenId, uint256 count);
-    event ArtistThumbnailUriRemoved(address indexed creator, uint256 indexed tokenId, uint256 index);
-    event CollectorArtworkUrisAdded(address indexed creator, uint256 indexed tokenId, uint256 count);
+    event SelectedArtworkUriChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
+    event SelectedThumbnailUriChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
+    event ArtworkUrisAdded(address indexed creator, uint256 indexed tokenId, address indexed actor, uint256 count);
+    event ArtworkUriRemoved(address indexed creator, uint256 indexed tokenId, address indexed actor, uint256 index);
+    event ArtistPermissionsRevoked(address indexed creator, uint256 indexed tokenId, address indexed artist);
     event HtmlTemplateUpdated();
 
     /*//////////////////////////////////////////////////////////////
@@ -177,451 +175,566 @@ contract Multiplex is AdminControl, ICreatorExtensionTokenURI, Lifebuoy {
     /// @notice Initialize the contract with an HTML template
     /// @param _htmlTemplate Initial HTML template with placeholders
     constructor(string memory _htmlTemplate) {
-        htmlTemplate = _htmlTemplate;
+        defaultHtmlTemplatePointer = SSTORE2.write(bytes(_htmlTemplate));
+        _initializeOwner(msg.sender);
     }
 
     /*//////////////////////////////////////////////////////////////
                             ACCESS HELPERS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Check if the caller is an admin of the creator contract
-    /// @param creatorContractAddress The creator contract to check admin status for
+    /// @notice Check if the caller is an admin of the contract
+    /// @param contractAddress The contract to check admin status for
     /// @return True if caller is admin, false otherwise
-    function isCreatorAdmin(address creatorContractAddress) internal view returns (bool) {
-        AdminControl creatorCoreContract = AdminControl(creatorContractAddress);
-        return creatorCoreContract.isAdmin(msg.sender);
+    function _isContractAdmin(address contractAddress) internal view returns (bool) {
+        // First try to check if it's a Manifold contract with AdminControl
+        try IAdminControl(contractAddress).isAdmin(tx.origin) returns (bool isAdmin) {
+            return isAdmin;
+        } catch {
+            // If not, check if it implements standard Ownable interface
+            try Ownable(contractAddress).owner() returns (address contractOwner) {
+                return tx.origin == contractOwner;
+            } catch {
+                // If neither, return false
+                return false;
+            }
+        }
     }
 
-    /// @notice Check if a wallet owns a specific token
-    /// @param creatorContractAddress The creator contract address
+    /// @notice Restricts function access to contract admins only
+    /// @param contractAddress The contract to check admin status for
+    modifier contractAdminRequired(address contractAddress) {
+        require(_isContractAdmin(contractAddress), WalletNotAdmin());
+        _;
+    }
+
+    /// @notice Check if a msg.sender owns a specific token
+    /// @param contractAddress The token contract address
     /// @param tokenId The token ID to check ownership for
-    /// @param wallet The wallet address to check
-    /// @return True if wallet owns the token, false otherwise
-    function isTokenOwner(
-        address creatorContractAddress,
+    /// @return True if msg.sender owns the token, false otherwise
+    function _isTokenOwner(address contractAddress, uint256 tokenId) internal view returns (bool) {
+        Token storage token = tokenData[contractAddress][tokenId];
+
+        if (token.ownership.style == OwnershipStyle.OWNER_OF) {
+            // Call function that returns address (e.g., ownerOf(tokenId))
+            (bool success, bytes memory result) =
+                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, tokenId));
+            if (success && result.length >= 32) {
+                address owner = abi.decode(result, (address));
+                return owner == msg.sender;
+            }
+        } else if (token.ownership.style == OwnershipStyle.BALANCE_OF_ERC721) {
+            // Call function that returns uint256 (e.g., balanceOf(address))
+            (bool success, bytes memory result) =
+                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, msg.sender));
+            if (success && result.length >= 32) {
+                uint256 balance = abi.decode(result, (uint256));
+                return balance > 0;
+            }
+        } else if (token.ownership.style == OwnershipStyle.BALANCE_OF_ERC1155) {
+            // Call function that returns uint256 (e.g., balanceOf(address, tokenId))
+            (bool success, bytes memory result) =
+                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, msg.sender, tokenId));
+            if (success && result.length >= 32) {
+                uint256 balance = abi.decode(result, (uint256));
+                return balance > 0;
+            }
+        } else if (token.ownership.style == OwnershipStyle.IS_APPROVED_FOR_ALL) {
+            // Call function that returns bool (e.g., isApprovedForAll(owner, operator))
+            // This requires knowing the owner address, so we need to get it first
+            // For now, we'll assume the selector takes (msg.sender, contractAddress)
+            (bool success, bytes memory result) = contractAddress.staticcall(
+                abi.encodeWithSelector(token.ownership.selector, msg.sender, contractAddress)
+            );
+            if (success && result.length >= 32) {
+                bool approved = abi.decode(result, (bool));
+                return approved;
+            }
+        } else if (token.ownership.style == OwnershipStyle.SIMPLE_BOOL) {
+            // Call function that returns bool (e.g., isOwner(address))
+            (bool success, bytes memory result) =
+                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, msg.sender));
+            if (success && result.length >= 32) {
+                bool isOwner = abi.decode(result, (bool));
+                return isOwner;
+            }
+        }
+
+        return false;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        TOKEN INITIALIZATION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Initialize token data
+    /// @param contractAddress The token contract address
+    /// @param tokenId The token ID to initialize
+    /// @param config Initialization configuration
+    /// @param thumbnailChunks On-chain thumbnail data chunks
+    function initializeTokenData(
+        address contractAddress,
         uint256 tokenId,
-        address wallet
+        InitConfig calldata config,
+        bytes[] calldata thumbnailChunks
     )
-        internal
-        view
-        returns (bool)
+        external
+        contractAdminRequired(contractAddress)
     {
-        if (isCreatorContractERC1155(creatorContractAddress)) {
-            return IERC1155(creatorContractAddress).balanceOf(wallet, tokenId) > 0;
-        } else if (isCreatorContractERC721(creatorContractAddress)) {
-            return IERC721(creatorContractAddress).ownerOf(tokenId) == wallet;
+        Token storage token = tokenData[contractAddress][tokenId];
+
+        // Set metadata and display mode
+        token.metadata = config.metadata;
+        token.displayMode = config.displayMode;
+
+        // Set artwork data
+        token.artwork = config.artwork;
+
+        // Set permissions
+        token.permissions = config.permissions;
+
+        // Set ownership configuration
+        token.ownership = config.ownership;
+
+        // Set thumbnail data
+        token.thumbnail = config.thumbnail;
+
+        // Metadata Checks
+        if (bytes(config.metadata).length == 0) {
+            revert InvalidMetadata();
+        }
+
+        // Artwork Checks
+        if (config.artwork.artistUris.length == 0) {
+            revert InvalidArtworkUris();
+        }
+
+        if (bytes(config.artwork.mimeType).length == 0) {
+            revert InvalidMimeType();
+        }
+
+        if (bytes(config.artwork.fileHash).length == 0) {
+            revert InvalidFileHash();
+        }
+
+        if (config.artwork.selectedArtistUriIndex >= config.artwork.artistUris.length) {
+            revert InvalidSelectedArtistUriIndex();
+        }
+
+        // Thumbnail Checks
+        if (config.thumbnail.kind == ThumbnailKind.ON_CHAIN) {
+            if (thumbnailChunks.length == 0) {
+                revert OnChainThumbnailEmpty();
+            }
+
+            // Store on-chain thumbnail chunks
+            for (uint256 i = 0; i < thumbnailChunks.length; i++) {
+                token.thumbnail.onChain.chunks.push(SSTORE2.write(thumbnailChunks[i]));
+            }
+        }
+
+        if (config.thumbnail.kind == ThumbnailKind.OFF_CHAIN) {
+            if (config.thumbnail.offChain.uris.length == 0) {
+                revert InvalidIndexRange();
+            }
+        }
+        if (config.thumbnail.offChain.selectedUriIndex >= config.thumbnail.offChain.uris.length) {
+            revert InvalidSelectedThumbnailUriIndex();
+        }
+
+        // Ownership Checks
+        if (config.ownership.selector == bytes4(0)) {
+            revert InvalidOwnershipFunction();
+        }
+
+        emit TokenDataInitialized(contractAddress, tokenId);
+    }
+
+    /// @notice Resolve thumbnail URI based on storage type
+    /// @param token The token data
+    /// @return Thumbnail URI as data URI or external URI
+    function _resolveThumbnailUri(Token storage token) internal view returns (string memory) {
+        if (token.thumbnail.kind == ThumbnailKind.ON_CHAIN) {
+            bytes memory data = _loadOnChainThumbnail(token.thumbnail.onChain);
+            return _encodeDataUri(token.thumbnail.onChain.mimeType, data, false);
+        } else if (token.thumbnail.kind == ThumbnailKind.OFF_CHAIN) {
+            if (token.thumbnail.offChain.selectedUriIndex < token.thumbnail.offChain.uris.length) {
+                return token.thumbnail.offChain.uris[token.thumbnail.offChain.selectedUriIndex];
+            }
+        }
+        revert InvalidThumbnailKind();
+    }
+
+    /// @notice Build combined artwork URIs for HTML template
+    /// @param token The token data
+    /// @return Comma-separated JSON array of URIs
+    function _combinedArtworkUris(Token storage token) internal view returns (string memory) {
+        string memory uriList = "";
+
+        // Add artist URIs
+        for (uint256 i = 0; i < token.artwork.artistUris.length; i++) {
+            if (i > 0) uriList = string(abi.encodePacked(uriList, ","));
+            uriList = string(abi.encodePacked(uriList, '"', token.artwork.artistUris[i], '"'));
+        }
+
+        // Add collector URIs
+        for (uint256 i = 0; i < token.artwork.collectorUris.length; i++) {
+            if (token.artwork.artistUris.length > 0 || i > 0) {
+                uriList = string(abi.encodePacked(uriList, ","));
+            }
+            uriList = string(abi.encodePacked(uriList, '"', token.artwork.collectorUris[i], '"'));
+        }
+
+        return uriList;
+    }
+
+    /// @notice Load and decompress on-chain thumbnail from storage
+    /// @param thumbnail The on-chain thumbnail data
+    /// @return Raw thumbnail bytes
+    function _loadOnChainThumbnail(OnChainThumbnail storage thumbnail) internal view returns (bytes memory) {
+        bytes memory data;
+
+        // Concatenate all chunks
+        for (uint256 i = 0; i < thumbnail.chunks.length; i++) {
+            if (thumbnail.chunks[i] != address(0)) {
+                data = abi.encodePacked(data, SSTORE2.read(thumbnail.chunks[i]));
+            }
+        }
+
+        // Decompress if needed
+        if (thumbnail.zipped) {
+            data = LibZip.flzDecompress(data);
+        }
+
+        return data;
+    }
+
+    /// @notice Load and combine HTML template chunks from storage
+    /// @param templatePointers Array of template chunk addresses
+    /// @return Combined HTML template string
+    function _loadHtmlTemplate(address[] storage templatePointers) internal view returns (string memory) {
+        bytes memory data;
+
+        // Concatenate all chunks
+        for (uint256 i = 0; i < templatePointers.length; i++) {
+            if (templatePointers[i] != address(0)) {
+                data = abi.encodePacked(data, SSTORE2.read(templatePointers[i]));
+            }
+        }
+
+        return string(data);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        TOKEN DATA MANAGEMENT
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Update metadata (artist only, if permission allows)
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @param newMetadata The new metadata JSON
+    function updateMetadata(
+        address contractAddress,
+        uint256 tokenId,
+        string calldata newMetadata
+    )
+        external
+        contractAdminRequired(contractAddress)
+    {
+        Token storage token = tokenData[contractAddress][tokenId];
+        require(token.permissions.flags & ARTIST_UPDATE_META != 0, ArtistPermissionRevoked());
+
+        token.metadata = newMetadata;
+        emit MetadataUpdated(contractAddress, tokenId);
+    }
+
+    /// @notice Update HTML template for a specific token (artist only, if permission allows)
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @param templateParts The new HTML template parts (empty array to use default)
+    function updateHtmlTemplate(
+        address contractAddress,
+        uint256 tokenId,
+        string[] calldata templateParts
+    )
+        external
+        contractAdminRequired(contractAddress)
+    {
+        Token storage token = tokenData[contractAddress][tokenId];
+        require(token.permissions.flags & ARTIST_UPDATE_TEMPLATE != 0, ArtistPermissionRevoked());
+
+        // Clear existing template pointers
+        delete token.htmlTemplatePointers;
+
+        // Store new template parts as SSTORE2 chunks
+        if (templateParts.length > 0) {
+            for (uint256 i = 0; i < templateParts.length; i++) {
+                if (bytes(templateParts[i]).length > 0) {
+                    token.htmlTemplatePointers.push(SSTORE2.write(bytes(templateParts[i])));
+                }
+            }
+        }
+
+        emit HtmlTemplateUpdated();
+    }
+
+    /// @notice Update thumbnail (artist only, if permission allows)
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @param thumbnail The new thumbnail data
+    /// @param thumbnailChunks On-chain thumbnail chunks (if thumbnail.kind == ON_CHAIN)
+    function updateThumbnail(
+        address contractAddress,
+        uint256 tokenId,
+        Thumbnail calldata thumbnail,
+        bytes[] calldata thumbnailChunks
+    )
+        external
+        contractAdminRequired(contractAddress)
+    {
+        Token storage token = tokenData[contractAddress][tokenId];
+        require(token.permissions.flags & ARTIST_UPDATE_THUMB != 0, ArtistPermissionRevoked());
+
+        // Validate thumbnail configuration
+        if (thumbnail.kind == ThumbnailKind.ON_CHAIN) {
+            require(thumbnailChunks.length > 0, InvalidIndexRange());
+        } else if (thumbnail.kind == ThumbnailKind.OFF_CHAIN) {
+            require(thumbnail.offChain.uris.length > 0, InvalidIndexRange());
+        }
+
+        // Clear existing thumbnail data
+        delete token.thumbnail.onChain.chunks;
+        delete token.thumbnail.offChain.uris;
+
+        // Set new thumbnail data
+        token.thumbnail = thumbnail;
+
+        if (thumbnail.kind == ThumbnailKind.ON_CHAIN) {
+            // Store new on-chain thumbnail chunks
+            for (uint256 i = 0; i < thumbnailChunks.length; i++) {
+                token.thumbnail.onChain.chunks.push(SSTORE2.write(thumbnailChunks[i]));
+            }
+        }
+
+        emit ThumbnailUpdated(contractAddress, tokenId);
+    }
+
+    /// @notice Revoke specific artist permissions (artist only)
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @param revokeUpdateThumbnail True to revoke thumbnail update permission
+    /// @param revokeUpdateMetadata True to revoke metadata update permission
+    /// @param revokeChooseUris True to revoke URI selection permission
+    /// @param revokeAddRemoveUris True to revoke add/remove URI permission
+    /// @param revokeChooseThumbnail True to revoke thumbnail selection permission
+    /// @param revokeUpdateDisplayMode True to revoke display mode update permission
+    /// @param revokeUpdateTemplate True to revoke HTML template update permission
+    function revokeArtistPermissions(
+        address contractAddress,
+        uint256 tokenId,
+        bool revokeUpdateThumbnail,
+        bool revokeUpdateMetadata,
+        bool revokeChooseUris,
+        bool revokeAddRemoveUris,
+        bool revokeChooseThumbnail,
+        bool revokeUpdateDisplayMode,
+        bool revokeUpdateTemplate
+    )
+        external
+        contractAdminRequired(contractAddress)
+    {
+        Token storage token = tokenData[contractAddress][tokenId];
+
+        // Revoke permissions by clearing the corresponding bits
+        if (revokeUpdateThumbnail) {
+            token.permissions.flags &= ~ARTIST_UPDATE_THUMB;
+        }
+        if (revokeUpdateMetadata) {
+            token.permissions.flags &= ~ARTIST_UPDATE_META;
+        }
+        if (revokeChooseUris) {
+            token.permissions.flags &= ~ARTIST_CHOOSE_URIS;
+        }
+        if (revokeAddRemoveUris) {
+            token.permissions.flags &= ~ARTIST_ADD_REMOVE;
+        }
+        if (revokeChooseThumbnail) {
+            token.permissions.flags &= ~ARTIST_CHOOSE_THUMB;
+        }
+        if (revokeUpdateDisplayMode) {
+            token.permissions.flags &= ~ARTIST_UPDATE_MODE;
+        }
+        if (revokeUpdateTemplate) {
+            token.permissions.flags &= ~ARTIST_UPDATE_TEMPLATE;
+        }
+
+        emit ArtistPermissionsRevoked(contractAddress, tokenId, msg.sender);
+    }
+
+    /// @notice Revoke all artist permissions (artist only)
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    function revokeAllArtistPermissions(
+        address contractAddress,
+        uint256 tokenId
+    )
+        external
+        contractAdminRequired(contractAddress)
+    {
+        Token storage token = tokenData[contractAddress][tokenId];
+
+        // Clear all artist permission bits
+        token.permissions.flags &= ~(
+            ARTIST_UPDATE_THUMB | ARTIST_UPDATE_META | ARTIST_CHOOSE_URIS | ARTIST_ADD_REMOVE | ARTIST_CHOOSE_THUMB
+                | ARTIST_UPDATE_MODE | ARTIST_UPDATE_TEMPLATE
+        );
+
+        emit ArtistPermissionsRevoked(contractAddress, tokenId, msg.sender);
+    }
+
+    /// @notice Add artwork URIs (artist or collector, based on caller role)
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @param uris The artwork URIs to add
+    function addArtworkUris(address contractAddress, uint256 tokenId, string[] calldata uris) external {
+        Token storage token = tokenData[contractAddress][tokenId];
+        bool isArtist = _isContractAdmin(contractAddress);
+        bool isCollector = _isTokenOwner(contractAddress, tokenId);
+
+        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
+
+        if (isArtist) {
+            require(token.permissions.flags & ARTIST_ADD_REMOVE != 0, ArtistPermissionRevoked());
+            for (uint256 i = 0; i < uris.length; i++) {
+                token.artwork.artistUris.push(uris[i]);
+            }
         } else {
-            revert CreatorMustImplementCreatorCoreInterface();
-        }
-    }
-
-    /// @notice Check if creator contract supports ERC1155CreatorCore interface
-    /// @param creatorContractAddress The contract address to check
-    /// @return True if contract supports ERC1155CreatorCore
-    function isCreatorContractERC1155(address creatorContractAddress) internal view returns (bool) {
-        return ERC165Checker.supportsInterface(creatorContractAddress, type(IERC1155CreatorCore).interfaceId);
-    }
-
-    /// @notice Check if creator contract supports ERC721CreatorCore interface
-    /// @param creatorContractAddress The contract address to check
-    /// @return True if contract supports ERC721CreatorCore
-    function isCreatorContractERC721(address creatorContractAddress) internal view returns (bool) {
-        return ERC165Checker.supportsInterface(creatorContractAddress, type(IERC721CreatorCore).interfaceId);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            MODIFIERS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Restricts function access to creator contract admins only
-    /// @param creatorContractAddress The creator contract to check admin status for
-    modifier creatorAdminRequired(address creatorContractAddress) {
-        require(isCreatorAdmin(creatorContractAddress), WalletNotAdmin());
-        _;
-    }
-
-    /// @notice Restricts function access to token owners only
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenId The token ID to check ownership for
-    modifier tokenOwnerRequired(address creatorContractAddress, uint256 tokenId) {
-        require(isTokenOwner(creatorContractAddress, tokenId, msg.sender), NotTokenOwner());
-        _;
-    }
-
-    /// @notice Restricts function access to token owners or creator admins
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenId The token ID to check ownership for
-    modifier tokenOwnerOrAdminRequired(address creatorContractAddress, uint256 tokenId) {
-        require(
-            isCreatorAdmin(creatorContractAddress) || isTokenOwner(creatorContractAddress, tokenId, msg.sender),
-            NotTokenOwnerOrAdmin()
-        );
-        _;
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            MINTING
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Mint ERC1155 tokens to multiple addresses with specified quantities
-    /// @param creatorContractAddress The ERC1155 creator contract address
-    /// @param params Minting parameters including recipients and quantities
-    /// @param thumbnailChunks On-chain thumbnail data chunks
-    function mintERC1155(
-        address creatorContractAddress,
-        MintERC1155Params calldata params,
-        bytes[] calldata thumbnailChunks
-    )
-        external
-        payable
-        creatorAdminRequired(creatorContractAddress)
-    {
-        require(isCreatorContractERC1155(creatorContractAddress), CreatorMustImplementCreatorCoreInterface());
-        require(params.recipients.length == params.quantities.length, InvalidIndexRange());
-        require(params.recipients.length > 0, InvalidIndexRange());
-
-        // Mint tokens via ERC1155 creator contract
-        string[] memory uris = new string[](params.recipients.length);
-        uint256[] memory tokenIds =
-            IERC1155CreatorCore(creatorContractAddress).mintExtensionNew(params.recipients, params.quantities, uris);
-
-        // Initialize and emit events
-        _mint(
-            creatorContractAddress, tokenIds, params.recipients, params.quantities, params.baseParams, thumbnailChunks
-        );
-    }
-
-    /// @notice Mint ERC721 tokens to multiple addresses (one per address)
-    /// @param creatorContractAddress The ERC721 creator contract address
-    /// @param params Minting parameters including recipients
-    /// @param thumbnailChunks On-chain thumbnail data chunks
-    function mintERC721(
-        address creatorContractAddress,
-        MintERC721Params calldata params,
-        bytes[] calldata thumbnailChunks
-    )
-        external
-        payable
-        creatorAdminRequired(creatorContractAddress)
-    {
-        require(isCreatorContractERC721(creatorContractAddress), CreatorMustImplementCreatorCoreInterface());
-        require(params.recipients.length > 0, InvalidIndexRange());
-
-        uint256[] memory tokenIds = new uint256[](params.recipients.length);
-        uint256[] memory quantities = new uint256[](params.recipients.length);
-
-        // Mint tokens to each recipient
-        for (uint256 i = 0; i < params.recipients.length; i++) {
-            tokenIds[i] = IERC721CreatorCore(creatorContractAddress).mintExtension(params.recipients[i]);
-            quantities[i] = 1; // ERC721 always has quantity 1
-        }
-
-        // Initialize and emit events
-        _mint(creatorContractAddress, tokenIds, params.recipients, quantities, params.baseParams, thumbnailChunks);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                    ARTIST ARTWORK MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Add artist artwork URIs (artist only)
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenId The token ID
-    /// @param uris The artwork URIs to add
-    function addArtistArtworkUris(
-        address creatorContractAddress,
-        uint256 tokenId,
-        string[] calldata uris
-    )
-        external
-        creatorAdminRequired(creatorContractAddress)
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-
-        for (uint256 i = 0; i < uris.length; i++) {
-            token.offchain.artistArtworkUris.push(uris[i]);
-        }
-
-        // If no artwork was selected before and we added some, select the first one
-        if (token.selection.selectedArtistArtworkIndex == 0 && uris.length > 0) {
-            token.selection.selectedArtistArtworkIndex = 1;
-        }
-
-        emit ArtistArtworkUrisAdded(creatorContractAddress, tokenId, uris.length);
-    }
-
-    /// @notice Remove an artist artwork URI by index (artist only)
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenId The token ID
-    /// @param index The index to remove
-    function removeArtistArtworkUri(
-        address creatorContractAddress,
-        uint256 tokenId,
-        uint256 index
-    )
-        external
-        creatorAdminRequired(creatorContractAddress)
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-        string[] storage artworks = token.offchain.artistArtworkUris;
-
-        require(index < artworks.length, InvalidIndexRange());
-
-        // Move last element to deleted position and pop
-        artworks[index] = artworks[artworks.length - 1];
-        artworks.pop();
-
-        // Adjust selection if needed
-        uint256 currentSelection = token.selection.selectedArtistArtworkIndex;
-        if (currentSelection > 0) {
-            // Convert to 0-based for comparison
-            uint256 selectedIndex = currentSelection - 1;
-            if (selectedIndex == index && artworks.length > 0) {
-                // Selected item was removed, select first item
-                token.selection.selectedArtistArtworkIndex = 1;
-            } else if (selectedIndex == artworks.length) {
-                // Selected item was moved from last position
-                token.selection.selectedArtistArtworkIndex = index + 1;
-            } else if (currentSelection > artworks.length) {
-                // Selection is now out of bounds
-                token.selection.selectedArtistArtworkIndex = artworks.length > 0 ? 1 : 0;
+            require(token.permissions.flags & COLLECTOR_ADD_REMOVE != 0, CollectorPermissionDenied());
+            for (uint256 i = 0; i < uris.length; i++) {
+                token.artwork.collectorUris.push(uris[i]);
             }
         }
 
-        emit ArtistArtworkUriRemoved(creatorContractAddress, tokenId, index);
+        emit ArtworkUrisAdded(contractAddress, tokenId, msg.sender, uris.length);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                    ARTIST THUMBNAIL MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Add artist thumbnail URIs (artist only)
-    /// @param creatorContractAddress The creator contract address
+    /// @notice Remove artwork URIs by indices (artist or collector, based on caller role)
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
-    /// @param uris The thumbnail URIs to add
-    function addArtistThumbnailUris(
-        address creatorContractAddress,
-        uint256 tokenId,
-        string[] calldata uris
-    )
-        external
-        creatorAdminRequired(creatorContractAddress)
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
+    /// @param indices The indices to remove (must be sorted in descending order)
+    function removeArtworkUris(address contractAddress, uint256 tokenId, uint256[] calldata indices) external {
+        Token storage token = tokenData[contractAddress][tokenId];
+        bool isArtist = _isContractAdmin(contractAddress);
+        bool isCollector = _isTokenOwner(contractAddress, tokenId);
 
-        for (uint256 i = 0; i < uris.length; i++) {
-            token.offchain.artistThumbnailUris.push(uris[i]);
+        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
+        require(indices.length > 0, InvalidIndexRange());
+
+        if (isArtist) {
+            require(token.permissions.flags & ARTIST_ADD_REMOVE != 0, ArtistPermissionRevoked());
+
+            // Remove in descending order to maintain indices
+            for (uint256 i = 0; i < indices.length; i++) {
+                uint256 index = indices[i];
+                require(index < token.artwork.artistUris.length, InvalidIndexRange());
+
+                // Move last element to deleted position and pop
+                token.artwork.artistUris[index] = token.artwork.artistUris[token.artwork.artistUris.length - 1];
+                token.artwork.artistUris.pop();
+            }
+
+            // Reset selection if out of bounds
+            if (token.artwork.selectedArtistUriIndex >= token.artwork.artistUris.length) {
+                token.artwork.selectedArtistUriIndex =
+                    token.artwork.artistUris.length > 0 ? uint8(token.artwork.artistUris.length - 1) : 0;
+            }
+        } else {
+            require(token.permissions.flags & COLLECTOR_ADD_REMOVE != 0, CollectorPermissionDenied());
+
+            // Remove in descending order to maintain indices
+            for (uint256 i = 0; i < indices.length; i++) {
+                uint256 index = indices[i];
+                require(index < token.artwork.collectorUris.length, InvalidIndexRange());
+
+                // Move last element to deleted position and pop
+                token.artwork.collectorUris[index] = token.artwork.collectorUris[token.artwork.collectorUris.length - 1];
+                token.artwork.collectorUris.pop();
+            }
         }
 
-        emit ArtistThumbnailUrisAdded(creatorContractAddress, tokenId, uris.length);
+        for (uint256 i = 0; i < indices.length; i++) {
+            emit ArtworkUriRemoved(contractAddress, tokenId, msg.sender, indices[i]);
+        }
     }
 
-    /// @notice Remove an artist thumbnail URI by index (artist only)
-    /// @param creatorContractAddress The creator contract address
+    /// @notice Set selected artwork URI (artist or collector, based on permissions)
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
-    /// @param index The index to remove
-    function removeArtistThumbnailUri(
-        address creatorContractAddress,
-        uint256 tokenId,
-        uint256 index
-    )
-        external
-        creatorAdminRequired(creatorContractAddress)
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-        string[] storage thumbnails = token.offchain.artistThumbnailUris;
+    /// @param index The 0-based index to select
+    function setSelectedUri(address contractAddress, uint256 tokenId, uint256 index) external {
+        Token storage token = tokenData[contractAddress][tokenId];
+        bool isArtist = _isContractAdmin(contractAddress);
+        bool isCollector = _isTokenOwner(contractAddress, tokenId);
 
-        require(index < thumbnails.length, InvalidIndexRange());
+        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
 
-        // Move last element to deleted position and pop
-        thumbnails[index] = thumbnails[thumbnails.length - 1];
-        thumbnails.pop();
-
-        // Adjust selection if needed
-        uint256 currentSelection = token.selection.selectedArtistThumbnailIndex;
-        if (currentSelection > 0) {
-            // Convert to 0-based for comparison
-            uint256 selectedIndex = currentSelection - 1;
-            if (selectedIndex == index && thumbnails.length > 0) {
-                // Selected item was removed, select first item
-                token.selection.selectedArtistThumbnailIndex = 1;
-            } else if (selectedIndex == thumbnails.length) {
-                // Selected item was moved from last position
-                token.selection.selectedArtistThumbnailIndex = index + 1;
-            } else if (currentSelection > thumbnails.length) {
-                // Selection is now out of bounds, fallback to on-chain
-                token.selection.selectedArtistThumbnailIndex = 0;
-            }
+        if (isArtist) {
+            require(token.permissions.flags & ARTIST_CHOOSE_URIS != 0, ArtistPermissionRevoked());
+        } else {
+            require(token.permissions.flags & COLLECTOR_CHOOSE_URIS != 0, CollectorPermissionDenied());
         }
 
-        emit ArtistThumbnailUriRemoved(creatorContractAddress, tokenId, index);
+        // Validate index (0-based)
+        require(index < token.artwork.artistUris.length, InvalidIndexRange());
+
+        token.artwork.selectedArtistUriIndex = index;
+        emit SelectedArtworkUriChanged(contractAddress, tokenId, index);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                    COLLECTOR ARTWORK MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Add collector artwork URIs (collector only, if allowed)
-    /// @param creatorContractAddress The creator contract address
+    /// @notice Set selected thumbnail URI (artist or collector, based on permissions, off-chain only)
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
-    /// @param uris The artwork URIs to add
-    function addCollectorArtworkUris(
-        address creatorContractAddress,
-        uint256 tokenId,
-        string[] calldata uris
-    )
-        external
-        tokenOwnerRequired(creatorContractAddress, tokenId)
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
+    /// @param index The 0-based index to select
+    function setSelectedThumbnailUri(address contractAddress, uint256 tokenId, uint256 index) external {
+        Token storage token = tokenData[contractAddress][tokenId];
+        bool isArtist = _isContractAdmin(contractAddress);
+        bool isCollector = _isTokenOwner(contractAddress, tokenId);
 
-        // Check if collector is allowed to add artwork
-        require(token.immutableProperties.allowCollectorAddArtwork, CollectorAddingArtworkDisabled());
+        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
+        require(token.thumbnail.kind == ThumbnailKind.OFF_CHAIN, InvalidThumbnailKind());
 
-        for (uint256 i = 0; i < uris.length; i++) {
-            token.offchain.collectorArtworkUris.push(uris[i]);
+        if (isArtist) {
+            require(token.permissions.flags & ARTIST_CHOOSE_THUMB != 0, ArtistPermissionRevoked());
+        } else {
+            require(token.permissions.flags & COLLECTOR_CHOOSE_THUMB != 0, CollectorPermissionDenied());
         }
 
-        emit CollectorArtworkUrisAdded(creatorContractAddress, tokenId, uris.length);
+        // Validate index (0-based)
+        require(index < token.thumbnail.offChain.uris.length, InvalidIndexRange());
+
+        token.thumbnail.offChain.selectedUriIndex = index;
+        emit SelectedThumbnailUriChanged(contractAddress, tokenId, index);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                        LOCK FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Lock metadata to prevent future updates (artist only)
-    /// @param creatorContractAddress The creator contract address
+    /// @notice Set display mode (artist or collector, based on permissions)
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
-    function lockMetadata(
-        address creatorContractAddress,
-        uint256 tokenId
-    )
-        external
-        creatorAdminRequired(creatorContractAddress)
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-        require(!token.metadataLocked, AlreadyLocked());
+    /// @param displayMode The new display mode
+    function setDisplayMode(address contractAddress, uint256 tokenId, DisplayMode displayMode) external {
+        Token storage token = tokenData[contractAddress][tokenId];
+        bool isArtist = _isContractAdmin(contractAddress);
+        bool isCollector = _isTokenOwner(contractAddress, tokenId);
 
-        token.metadataLocked = true;
-        emit MetadataLocked(creatorContractAddress, tokenId);
-    }
+        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
 
-    /// @notice Lock thumbnail to prevent future updates (artist only)
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenId The token ID
-    function lockThumbnail(
-        address creatorContractAddress,
-        uint256 tokenId
-    )
-        external
-        creatorAdminRequired(creatorContractAddress)
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-        require(!token.thumbnailLocked, AlreadyLocked());
-
-        token.thumbnailLocked = true;
-        emit ThumbnailLocked(creatorContractAddress, tokenId);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        UPDATE FUNCTION
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Update multiple token properties in one transaction
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenId The token ID
-    /// @param params Update parameters
-    function updateToken(address creatorContractAddress, uint256 tokenId, UpdateParams calldata params) external {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-        bool isAdmin = isCreatorAdmin(creatorContractAddress);
-        bool isOwner = isTokenOwner(creatorContractAddress, tokenId, msg.sender);
-
-        require(isAdmin || isOwner, NotTokenOwnerOrAdmin());
-
-        // ADMIN-ONLY UPDATES
-
-        // Update metadata
-        if (params.updateMetadata) {
-            require(isAdmin, WalletNotAdmin());
-            require(!token.metadataLocked, AlreadyLocked());
-            token.metadata = params.metadata;
-            emit MetadataUpdated(creatorContractAddress, tokenId);
+        if (isArtist) {
+            require(token.permissions.flags & ARTIST_UPDATE_MODE != 0, ArtistPermissionRevoked());
+        } else {
+            require(token.permissions.flags & COLLECTOR_UPDATE_MODE != 0, CollectorPermissionDenied());
         }
 
-        // Update thumbnail
-        if (params.updateThumbnail) {
-            require(isAdmin, WalletNotAdmin());
-            require(!token.thumbnailLocked, AlreadyLocked());
-            require(!(params.thumbnailOptions.zipped && params.thumbnailOptions.deflated), InvalidCompressionFlags());
-
-            // Clear existing chunks
-            delete token.onChainThumbnail.chunks;
-
-            // Store new chunks
-            for (uint256 i = 0; i < params.thumbnailChunks.length; i++) {
-                token.onChainThumbnail.chunks.push(SSTORE2.write(params.thumbnailChunks[i]));
-            }
-
-            // Update file properties
-            token.onChainThumbnail.mimeType = params.thumbnailOptions.mimeType;
-            token.onChainThumbnail.length = params.thumbnailOptions.length;
-            token.onChainThumbnail.zipped = params.thumbnailOptions.zipped;
-            token.onChainThumbnail.deflated = params.thumbnailOptions.deflated;
-
-            emit ThumbnailUpdated(creatorContractAddress, tokenId, params.thumbnailChunks.length);
-        }
-
-        // OWNER OR ADMIN UPDATES (with permission checks)
-
-        // Update display mode
-        if (params.updateDisplayMode) {
-            if (!isAdmin) {
-                require(
-                    token.immutableProperties.allowCollectorToggleDisplayMode, CollectorTogglingDisplayModeDisabled()
-                );
-            }
-            token.displayMode = params.displayMode;
-            emit DisplayModeUpdated(creatorContractAddress, tokenId, params.displayMode);
-        }
-
-        // Update selected artist artwork
-        if (params.updateSelectedArtistArtwork) {
-            if (!isAdmin) {
-                require(
-                    token.immutableProperties.allowCollectorSelectArtistArtwork, CollectorSelectingArtworkDisabled()
-                );
-            }
-
-            // Validate index (1-based, 0 means none)
-            if (params.selectedArtistArtworkIndex > 0) {
-                require(
-                    params.selectedArtistArtworkIndex <= token.offchain.artistArtworkUris.length, InvalidIndexRange()
-                );
-            }
-
-            token.selection.selectedArtistArtworkIndex = params.selectedArtistArtworkIndex;
-            emit SelectedArtistArtworkChanged(creatorContractAddress, tokenId, params.selectedArtistArtworkIndex);
-        }
-
-        // Update selected artist thumbnail
-        if (params.updateSelectedArtistThumbnail) {
-            if (!isAdmin) {
-                require(
-                    token.immutableProperties.allowCollectorSelectArtistThumbnail, CollectorSelectingThumbnailDisabled()
-                );
-            }
-
-            // Validate index (1-based, 0 means use on-chain)
-            if (params.selectedArtistThumbnailIndex > 0) {
-                require(
-                    params.selectedArtistThumbnailIndex <= token.offchain.artistThumbnailUris.length,
-                    InvalidIndexRange()
-                );
-            }
-
-            token.selection.selectedArtistThumbnailIndex = params.selectedArtistThumbnailIndex;
-            emit SelectedArtistThumbnailChanged(creatorContractAddress, tokenId, params.selectedArtistThumbnailIndex);
-        }
+        token.displayMode = displayMode;
+        emit DisplayModeUpdated(contractAddress, tokenId, displayMode);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -630,124 +743,146 @@ contract Multiplex is AdminControl, ICreatorExtensionTokenURI, Lifebuoy {
 
     /// @notice Update HTML template (contract admin only)
     /// @param newTemplate New HTML template
-    function setHtmlTemplate(string calldata newTemplate) external {
-        require(isAdmin(msg.sender), WalletNotAdmin());
-        htmlTemplate = newTemplate;
+    function setDefaultHtmlTemplate(string calldata newTemplate) external onlyOwner {
+        defaultHtmlTemplatePointer = SSTORE2.write(bytes(newTemplate));
         emit HtmlTemplateUpdated();
     }
 
     /// @notice Get current HTML template
     /// @return The HTML template
-    function getHtmlTemplate() external view returns (string memory) {
-        return htmlTemplate;
+    function getDefaultHtmlTemplate() external view returns (string memory) {
+        return string(SSTORE2.read(defaultHtmlTemplatePointer));
     }
 
     /*//////////////////////////////////////////////////////////////
                         RENDERING FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Render the on-chain thumbnail as a data URI
-    /// @param creatorContractAddress The creator contract address
+    /// @notice Render the thumbnail as a data URI
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @return Base64-encoded data URI of the thumbnail
-    function renderImage(address creatorContractAddress, uint256 tokenId) public view returns (string memory) {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-        bytes memory data = _loadFile(token.onChainThumbnail);
-        return _encodeDataUri(token.onChainThumbnail.mimeType, data);
+    function renderImage(address contractAddress, uint256 tokenId) public view returns (string memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
+        return _resolveThumbnailUri(token);
+    }
+
+    /// @notice Render the raw image bytes
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @return Raw image bytes
+    function renderRawImage(address contractAddress, uint256 tokenId) public view returns (bytes memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
+        if (token.thumbnail.kind != ThumbnailKind.ON_CHAIN) {
+            revert InvalidThumbnailKind();
+        }
+
+        return _loadOnChainThumbnail(token.thumbnail.onChain);
     }
 
     /// @notice Render HTML content with all artwork URIs
-    /// @param creatorContractAddress The creator contract address
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @return Base64-encoded HTML data URI
-    function renderHTML(address creatorContractAddress, uint256 tokenId) public view returns (string memory) {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
+    function renderHTML(address contractAddress, uint256 tokenId) public view returns (string memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
 
-        // Build combined URI list (artist + collector)
-        string memory uriList = "";
+        // Build combined URI list using helper function
+        string memory uriList = _combinedArtworkUris(token);
 
-        // Add artist URIs
-        for (uint256 i = 0; i < token.offchain.artistArtworkUris.length; i++) {
-            if (i > 0) uriList = string(abi.encodePacked(uriList, ","));
-            uriList = string(abi.encodePacked(uriList, '"', token.offchain.artistArtworkUris[i], '"'));
-        }
-
-        // Add collector URIs
-        for (uint256 i = 0; i < token.offchain.collectorArtworkUris.length; i++) {
-            if (token.offchain.artistArtworkUris.length > 0 || i > 0) {
-                uriList = string(abi.encodePacked(uriList, ","));
-            }
-            uriList = string(abi.encodePacked(uriList, '"', token.offchain.collectorArtworkUris[i], '"'));
+        // Get HTML template (use token-specific template if available, otherwise use default)
+        string memory htmlTemplate;
+        if (token.htmlTemplatePointers.length > 0) {
+            htmlTemplate = _loadHtmlTemplate(token.htmlTemplatePointers);
+        } else {
+            htmlTemplate = string(SSTORE2.read(defaultHtmlTemplatePointer));
         }
 
         // Replace placeholders in template
-        string memory html = LibString.replace(htmlTemplate, "{{IMAGE_URIS}}", uriList);
-        html = LibString.replace(html, "{{IMAGE_HASH}}", token.immutableProperties.imageHash);
+        string memory html = LibString.replace(htmlTemplate, "{{FILE_URIS}}", uriList);
+        html = LibString.replace(html, "{{FILE_HASH}}", token.artwork.fileHash);
 
-        return string(abi.encodePacked("data:text/html;base64,", Base64.encode(bytes(html))));
+        return _encodeDataUri("text/html", bytes(html), true);
+    }
+
+    /// @notice Render the raw HTML content
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @return Raw HTML content
+    function renderRawHTML(address contractAddress, uint256 tokenId) external view returns (string memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
+
+        // Build combined URI list using helper function
+        string memory uriList = _combinedArtworkUris(token);
+
+        // Get HTML template (use token-specific template if available, otherwise use default)
+        string memory htmlTemplate;
+        if (token.htmlTemplatePointers.length > 0) {
+            htmlTemplate = _loadHtmlTemplate(token.htmlTemplatePointers);
+        } else {
+            htmlTemplate = string(SSTORE2.read(defaultHtmlTemplatePointer));
+        }
+
+        // Replace placeholders in template
+        string memory html = LibString.replace(htmlTemplate, "{{FILE_URIS}}", uriList);
+        html = LibString.replace(html, "{{FILE_HASH}}", token.artwork.fileHash);
+
+        return html;
     }
 
     /// @notice Render complete metadata JSON
-    /// @param creatorContractAddress The creator contract address
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
-    /// @return Complete metadata JSON as data URI
-    function renderMetadata(address creatorContractAddress, uint256 tokenId) public view returns (string memory) {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
+    /// @return Complete metadata JSON as Base64 encoded data URI
+    function renderMetadata(address contractAddress, uint256 tokenId) public view returns (string memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
         string memory json = token.metadata;
 
-        // Determine thumbnail to use
-        string memory thumbnailUri;
-        if (token.immutableProperties.useOffchainThumbnail && token.selection.selectedArtistThumbnailIndex > 0) {
-            uint256 index = token.selection.selectedArtistThumbnailIndex - 1; // Convert to 0-based
-            if (index < token.offchain.artistThumbnailUris.length) {
-                thumbnailUri = token.offchain.artistThumbnailUris[index];
-            } else {
-                // Fallback to on-chain if index is out of range
-                thumbnailUri = renderImage(creatorContractAddress, tokenId);
-            }
-        } else {
-            // Use on-chain thumbnail
-            thumbnailUri = renderImage(creatorContractAddress, tokenId);
-        }
-
-        // Add image field
-        json = _appendJsonField(json, string(abi.encodePacked('"image":"', thumbnailUri, '"')));
-
-        // Add animation_url if needed
         if (token.displayMode == DisplayMode.HTML) {
-            // HTML mode: always show interactive experience
-            string memory htmlUri = renderHTML(creatorContractAddress, tokenId);
+            // HTML mode: thumbnail in image, HTML content in animation_url
+            string memory thumbnailUri = _resolveThumbnailUri(token);
+            json = _appendJsonField(json, string(abi.encodePacked('"image":"', thumbnailUri, '"')));
+
+            string memory htmlUri = renderHTML(contractAddress, tokenId);
             json = _appendJsonField(json, string(abi.encodePacked('"animation_url":"', htmlUri, '"')));
-        } else if (token.immutableProperties.isAnimationUri && token.selection.selectedArtistArtworkIndex > 0) {
-            // IMAGE mode with animation: show selected artist artwork
-            uint256 index = token.selection.selectedArtistArtworkIndex - 1; // Convert to 0-based
-            if (index < token.offchain.artistArtworkUris.length) {
-                string memory artworkUri = token.offchain.artistArtworkUris[index];
-                json = _appendJsonField(json, string(abi.encodePacked('"animation_url":"', artworkUri, '"')));
+        } else {
+            // DIRECT_FILE mode
+            if (!token.artwork.isAnimationUri) {
+                // Static artwork: selected artwork goes in image field
+                if (token.artwork.artistUris.length > 0) {
+                    // Use selected artwork, or fallback to first if index out of range
+                    uint256 artworkIndex = token.artwork.selectedArtistUriIndex < token.artwork.artistUris.length
+                        ? token.artwork.selectedArtistUriIndex
+                        : 0;
+                    string memory artworkUri = token.artwork.artistUris[artworkIndex];
+                    json = _appendJsonField(json, string(abi.encodePacked('"image":"', artworkUri, '"')));
+                } else {
+                    // No artist URIs at all, fallback to thumbnail
+                    string memory thumbnailUri = _resolveThumbnailUri(token);
+                    json = _appendJsonField(json, string(abi.encodePacked('"image":"', thumbnailUri, '"')));
+                }
+            } else {
+                // Animation artwork: thumbnail in image, artwork in animation_url
+                string memory thumbnailUri = _resolveThumbnailUri(token);
+                json = _appendJsonField(json, string(abi.encodePacked('"image":"', thumbnailUri, '"')));
+
+                // Get artwork URI for animation_url
+                string memory artworkUri;
+                if (token.artwork.selectedArtistUriIndex < token.artwork.artistUris.length) {
+                    // Use selected artwork
+                    artworkUri = token.artwork.artistUris[token.artwork.selectedArtistUriIndex];
+                } else if (token.artwork.artistUris.length > 0) {
+                    // Index out of range, use first artwork
+                    artworkUri = token.artwork.artistUris[0];
+                }
+
+                if (bytes(artworkUri).length > 0) {
+                    json = _appendJsonField(json, string(abi.encodePacked('"animation_url":"', artworkUri, '"')));
+                }
             }
-            // If index is out of range, omit animation_url
         }
 
-        return string(abi.encodePacked("data:application/json;utf8,{", json, "}"));
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        INTERFACE FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Get token URI (ICreatorExtensionTokenURI implementation)
-    /// @param creator The creator contract address
-    /// @param tokenId The token ID
-    /// @return Complete metadata JSON as data URI
-    function tokenURI(address creator, uint256 tokenId) external view override returns (string memory) {
-        return renderMetadata(creator, tokenId);
-    }
-
-    /// @notice Check if contract supports a given interface
-    /// @param interfaceId The interface ID to check
-    /// @return True if interface is supported
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AdminControl, IERC165) returns (bool) {
-        return interfaceId == type(ICreatorExtensionTokenURI).interfaceId || AdminControl.supportsInterface(interfaceId);
+        return _encodeDataUri("application/json", bytes(string(abi.encodePacked("{", json, "}"))), true);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -755,160 +890,127 @@ contract Multiplex is AdminControl, ICreatorExtensionTokenURI, Lifebuoy {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Get all artist artwork URIs for a token
-    /// @param creatorContractAddress The creator contract address
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @return Array of artist artwork URIs
-    function getArtistArtworkUris(
-        address creatorContractAddress,
-        uint256 tokenId
-    )
-        external
-        view
-        returns (string[] memory)
-    {
-        return tokenData[creatorContractAddress][tokenId].offchain.artistArtworkUris;
+    function getArtistArtworkUris(address contractAddress, uint256 tokenId) external view returns (string[] memory) {
+        return tokenData[contractAddress][tokenId].artwork.artistUris;
     }
 
     /// @notice Get all collector artwork URIs for a token
-    /// @param creatorContractAddress The creator contract address
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @return Array of collector artwork URIs
     function getCollectorArtworkUris(
-        address creatorContractAddress,
+        address contractAddress,
         uint256 tokenId
     )
         external
         view
         returns (string[] memory)
     {
-        return tokenData[creatorContractAddress][tokenId].offchain.collectorArtworkUris;
+        return tokenData[contractAddress][tokenId].artwork.collectorUris;
     }
 
-    /// @notice Get all artist thumbnail URIs for a token
-    /// @param creatorContractAddress The creator contract address
+    /// @notice Get all thumbnail URIs for a token (off-chain only)
+    /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
-    /// @return Array of artist thumbnail URIs
-    function getArtistThumbnailUris(
-        address creatorContractAddress,
+    /// @return Array of thumbnail URIs
+    function getThumbnailUris(address contractAddress, uint256 tokenId) external view returns (string[] memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
+        require(token.thumbnail.kind == ThumbnailKind.OFF_CHAIN, InvalidThumbnailKind());
+        return token.thumbnail.offChain.uris;
+    }
+
+    /// @notice Get token permissions
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @return The permissions struct
+    function getPermissions(address contractAddress, uint256 tokenId) external view returns (Permissions memory) {
+        return tokenData[contractAddress][tokenId].permissions;
+    }
+
+    /// @notice Get artwork configuration
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @return The artwork struct
+    function getArtwork(address contractAddress, uint256 tokenId) external view returns (Artwork memory) {
+        return tokenData[contractAddress][tokenId].artwork;
+    }
+
+    /// @notice Get thumbnail kind and selected index
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @return thumbnailKind The thumbnail storage type
+    /// @return selectedIndex The selected thumbnail index (for off-chain)
+    function getThumbnailInfo(
+        address contractAddress,
         uint256 tokenId
     )
         external
         view
-        returns (string[] memory)
+        returns (ThumbnailKind thumbnailKind, uint256 selectedIndex)
     {
-        return tokenData[creatorContractAddress][tokenId].offchain.artistThumbnailUris;
+        Token storage token = tokenData[contractAddress][tokenId];
+        thumbnailKind = token.thumbnail.kind;
+        selectedIndex = token.thumbnail.kind == ThumbnailKind.OFF_CHAIN ? token.thumbnail.offChain.selectedUriIndex : 0;
+    }
+
+    /// @notice Get ownership configuration
+    /// @param contractAddress The contract address
+    /// @param tokenId The token ID
+    /// @return The ownership configuration
+    function getOwnershipConfig(
+        address contractAddress,
+        uint256 tokenId
+    )
+        external
+        view
+        returns (OwnershipConfig memory)
+    {
+        return tokenData[contractAddress][tokenId].ownership;
+    }
+
+    /// @notice Get HTML template for a specific token
+    /// @param contractAddress The contract address
+    /// @param tokenId The token ID
+    /// @return The HTML template (empty string if using default)
+    function getTokenHtmlTemplate(address contractAddress, uint256 tokenId) external view returns (string memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
+        if (token.htmlTemplatePointers.length > 0) {
+            return _loadHtmlTemplate(token.htmlTemplatePointers);
+        }
+        return ""; // Empty string indicates default template is being used
+    }
+
+    /// @notice Get combined artwork URIs
+    /// @param contractAddress The creator contract address
+    /// @param tokenId The token ID
+    /// @return Comma-separated JSON array of URIs
+    function getCombinedArtworkUris(address contractAddress, uint256 tokenId) external view returns (string memory) {
+        Token storage token = tokenData[contractAddress][tokenId];
+        return _combinedArtworkUris(token);
     }
 
     /*//////////////////////////////////////////////////////////////
                         INTERNAL HELPERS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Internal mint function to handle common minting logic
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenIds Array of minted token IDs
-    /// @param recipients Array of recipient addresses
-    /// @param quantities Array of quantities for each token
-    /// @param params Base minting parameters
-    /// @param thumbnailChunks On-chain thumbnail data chunks
-    function _mint(
-        address creatorContractAddress,
-        uint256[] memory tokenIds,
-        address[] memory recipients,
-        uint256[] memory quantities,
-        MintParams calldata params,
-        bytes[] calldata thumbnailChunks
-    )
-        internal
-    {
-        // Validate compression settings
-        require(!(params.onChainThumbnail.zipped && params.onChainThumbnail.deflated), InvalidCompressionFlags());
-
-        // Initialize token data for the first token (all tokens share the same metadata)
-        uint256 primaryTokenId = tokenIds[0];
-        _initializeTokenData(creatorContractAddress, primaryTokenId, params, thumbnailChunks);
-
-        // Emit events for each minted token
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            emit TokenMinted(creatorContractAddress, tokenIds[i], recipients[i], quantities[i]);
-        }
-
-        emit BatchTokensMinted(creatorContractAddress, primaryTokenId, tokenIds.length);
-    }
-
-    /// @notice Initialize token data for a newly minted token
-    /// @param creatorContractAddress The creator contract address
-    /// @param tokenId The token ID to initialize
-    /// @param params Base minting parameters
-    /// @param thumbnailChunks On-chain thumbnail data chunks
-    function _initializeTokenData(
-        address creatorContractAddress,
-        uint256 tokenId,
-        MintParams calldata params,
-        bytes[] calldata thumbnailChunks
-    )
-        internal
-    {
-        Token storage token = tokenData[creatorContractAddress][tokenId];
-
-        // Set metadata
-        token.metadata = params.metadata;
-        token.displayMode = params.initialDisplayMode;
-
-        // Set immutable properties
-        token.immutableProperties = params.immutableProperties;
-
-        // Store on-chain thumbnail
-        for (uint256 i = 0; i < thumbnailChunks.length; i++) {
-            token.onChainThumbnail.chunks.push(SSTORE2.write(thumbnailChunks[i]));
-        }
-        token.onChainThumbnail.mimeType = params.onChainThumbnail.mimeType;
-        token.onChainThumbnail.length = params.onChainThumbnail.length;
-        token.onChainThumbnail.zipped = params.onChainThumbnail.zipped;
-        token.onChainThumbnail.deflated = params.onChainThumbnail.deflated;
-
-        // Seed initial URI lists
-        for (uint256 i = 0; i < params.seedArtistArtworkUris.length; i++) {
-            token.offchain.artistArtworkUris.push(params.seedArtistArtworkUris[i]);
-        }
-        for (uint256 i = 0; i < params.seedArtistThumbnailUris.length; i++) {
-            token.offchain.artistThumbnailUris.push(params.seedArtistThumbnailUris[i]);
-        }
-
-        // Set default selections
-        if (params.seedArtistArtworkUris.length > 0) {
-            token.selection.selectedArtistArtworkIndex = 1; // First artwork
-        }
-    }
-
-    /// @notice Load and decompress file from storage
-    /// @param file The file to load
-    /// @return Raw file bytes
-    function _loadFile(File storage file) internal view returns (bytes memory) {
-        bytes memory data;
-
-        // Concatenate all chunks
-        for (uint256 i = 0; i < file.chunks.length; i++) {
-            if (file.chunks[i] != address(0)) {
-                data = abi.encodePacked(data, SSTORE2.read(file.chunks[i]));
-            }
-        }
-
-        // Decompress if needed
-        if (file.zipped) {
-            data = LibZip.flzDecompress(data);
-        } else if (file.deflated) {
-            data = InflateLib.puff(data, file.length);
-        }
-
-        return data;
-    }
-
     /// @notice Encode data as base64 data URI
     /// @param mimeType MIME type
     /// @param data Raw data
     /// @return Base64-encoded data URI
-    function _encodeDataUri(string memory mimeType, bytes memory data) internal pure returns (string memory) {
-        return string(abi.encodePacked("data:", mimeType, ";base64,", Base64.encode(data)));
+    function _encodeDataUri(
+        string memory mimeType,
+        bytes memory data,
+        bool utf8Charset
+    )
+        internal
+        pure
+        returns (string memory)
+    {
+        string memory charset = utf8Charset ? ";charset=UTF-8" : "";
+        return string(abi.encodePacked("data:", mimeType, charset, ";base64,", Base64.encode(data)));
     }
 
     /// @notice Append field to JSON

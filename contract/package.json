@@ -21,7 +21,6 @@
     "foundry",
     "smart-contracts",
     "solidity",
-    "multiplex"
   ],
   "private": true,
   "scripts": {

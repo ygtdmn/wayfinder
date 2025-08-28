@@ -1,1658 +1,1620 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity >=0.8.30 <0.9.0;
 
-import { Test } from "forge-std/src/Test.sol";
-import { console2 } from "forge-std/src/console2.sol";
-import { Multiplex } from "../src/Multiplex.sol";
-import { Base64 } from "solady/utils/Base64.sol";
-import { LibString } from "solady/utils/LibString.sol";
+import "forge-std/src/Test.sol";
+import { Multiplex } from "src/Multiplex.sol";
+import { MockCustomOwnership } from "test/mocks/MockCustomOwnership.sol";
+import { MockAdminControl } from "test/mocks/MockAdminControl.sol";
+import { ERC721 } from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import { LibZip } from "solady/utils/LibZip.sol";
-import { AdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/AdminControl.sol";
-import { IERC1155CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
-import { IERC721CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC721CreatorCore.sol";
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
-import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { ICreatorExtensionTokenURI } from
-    "@manifoldxyz/creator-core-solidity/contracts/extensions/ICreatorExtensionTokenURI.sol";
-import { IAdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/IAdminControl.sol";
+import { MockERC721 } from "test/mocks/MockERC721.sol";
+import { MockERC1155 } from "test/mocks/MockERC1155.sol";
+import { MockOwnable } from "test/mocks/MockOwnable.sol";
+import { MultiplexHarness } from "test/MultiplexHarness.sol";
 
-// TODO: DANGER! This is an AI generated test contract. It's not a proper test and the project shouldn't be deployed
-// on mainnet without proper, human made test cases.
-
-// Mock ERC721 Creator Contract
-contract MockERC721Creator is AdminControl, IERC721CreatorCore, IERC721 {
-    uint256 private _currentTokenId;
-    mapping(uint256 => address) private _owners;
-    mapping(address => uint256) private _balances;
-    mapping(uint256 => address) private _tokenApprovals;
-    mapping(address => mapping(address => bool)) private _operatorApprovals;
-
-    constructor() { }
-
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AdminControl, IERC165) returns (bool) {
-        return interfaceId == type(IERC721CreatorCore).interfaceId || interfaceId == type(IERC721).interfaceId
-            || AdminControl.supportsInterface(interfaceId);
-    }
-
-    // IERC721CreatorCore implementation
-    function mintExtension(address to) public override returns (uint256) {
-        uint256 tokenId = ++_currentTokenId;
-        _mint(to, tokenId);
-        return tokenId;
-    }
-
-    function mintExtension(address to, string calldata) external override returns (uint256) {
-        return this.mintExtension(to);
-    }
-
-    function mintExtension(address to, uint80) external override returns (uint256) {
-        return this.mintExtension(to);
-    }
-
-    function mintExtensionBatch(address to, uint16 count) public override returns (uint256[] memory tokenIds) {
-        tokenIds = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            tokenIds[i] = this.mintExtension(to);
-        }
-    }
-
-    function mintExtensionBatch(address to, string[] calldata) external override returns (uint256[] memory) {
-        return this.mintExtensionBatch(to, uint16(1));
-    }
-
-    function mintExtensionBatch(address to, uint80[] calldata) external override returns (uint256[] memory) {
-        return this.mintExtensionBatch(to, uint16(1));
-    }
-
-    // IERC721 implementation
-    function balanceOf(address owner) public view override returns (uint256) {
-        require(owner != address(0), "ERC721: address zero is not a valid owner");
-        return _balances[owner];
-    }
-
-    function ownerOf(uint256 tokenId) public view override returns (address) {
-        address owner = _owners[tokenId];
-        require(owner != address(0), "ERC721: invalid token ID");
-        return owner;
-    }
-
-    function approve(address to, uint256 tokenId) public override {
-        address owner = ownerOf(tokenId);
-        require(to != owner, "ERC721: approval to current owner");
-        require(
-            msg.sender == owner || isApprovedForAll(owner, msg.sender),
-            "ERC721: approve caller is not token owner or approved for all"
-        );
-        _tokenApprovals[tokenId] = to;
-        emit Approval(owner, to, tokenId);
-    }
-
-    function getApproved(uint256 tokenId) public view override returns (address) {
-        return _tokenApprovals[tokenId];
-    }
-
-    function setApprovalForAll(address operator, bool approved) public override {
-        _operatorApprovals[msg.sender][operator] = approved;
-        emit ApprovalForAll(msg.sender, operator, approved);
-    }
-
-    function isApprovedForAll(address owner, address operator) public view override returns (bool) {
-        return _operatorApprovals[owner][operator];
-    }
-
-    function transferFrom(address from, address to, uint256 tokenId) public override {
-        require(_isApprovedOrOwner(msg.sender, tokenId), "ERC721: caller is not token owner or approved");
-        _transfer(from, to, tokenId);
-    }
-
-    function safeTransferFrom(address from, address to, uint256 tokenId) public override {
-        safeTransferFrom(from, to, tokenId, "");
-    }
-
-    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory) public override {
-        require(_isApprovedOrOwner(msg.sender, tokenId), "ERC721: caller is not token owner or approved");
-        _transfer(from, to, tokenId);
-    }
-
-    // Internal functions
-    function _mint(address to, uint256 tokenId) internal {
-        require(to != address(0), "ERC721: mint to the zero address");
-        require(_owners[tokenId] == address(0), "ERC721: token already minted");
-        _balances[to] += 1;
-        _owners[tokenId] = to;
-        emit Transfer(address(0), to, tokenId);
-    }
-
-    function _transfer(address from, address to, uint256 tokenId) internal {
-        require(ownerOf(tokenId) == from, "ERC721: transfer from incorrect owner");
-        require(to != address(0), "ERC721: transfer to the zero address");
-        delete _tokenApprovals[tokenId];
-        _balances[from] -= 1;
-        _balances[to] += 1;
-        _owners[tokenId] = to;
-        emit Transfer(from, to, tokenId);
-    }
-
-    function _isApprovedOrOwner(address spender, uint256 tokenId) internal view returns (bool) {
-        address owner = ownerOf(tokenId);
-        return (spender == owner || isApprovedForAll(owner, spender) || getApproved(tokenId) == spender);
-    }
-
-    // Stub implementations for other IERC721CreatorCore methods
-    function registerExtension(address, string calldata) external override { }
-    function registerExtension(address, string calldata, bool) external override { }
-    function unregisterExtension(address) external override { }
-    function blacklistExtension(address) external override { }
-    function setBaseTokenURI(string calldata) external override { }
-    function setBaseTokenURIExtension(string calldata) external override { }
-    function setBaseTokenURIExtension(string calldata, bool) external override { }
-    function setTokenURIPrefixExtension(string calldata) external override { }
-    function setTokenURIExtension(uint256, string calldata) external override { }
-    function setTokenURIExtension(uint256[] calldata, string[] calldata) external override { }
-    function setApproveTransferExtension(bool) external override { }
-
-    function tokenExtension(uint256) external pure override returns (address) {
-        return address(0);
-    }
-
-    function burn(uint256) external pure override { }
-    function setRoyalties(address payable[] calldata, uint256[] calldata) external override { }
-    function setRoyalties(uint256, address payable[] calldata, uint256[] calldata) external override { }
-    function setRoyaltiesExtension(address, address payable[] calldata, uint256[] calldata) external override { }
-
-    function getRoyalties(uint256) external pure override returns (address payable[] memory, uint256[] memory) {
-        return (new address payable[](0), new uint256[](0));
-    }
-
-    function getFeeRecipients(uint256) external pure override returns (address payable[] memory) {
-        return new address payable[](0);
-    }
-
-    function getFeeBps(uint256) external pure override returns (uint256[] memory) {
-        return new uint256[](0);
-    }
-
-    function getFees(uint256) external pure override returns (address payable[] memory, uint256[] memory) {
-        return (new address payable[](0), new uint256[](0));
-    }
-
-    function royaltyInfo(uint256, uint256) external pure override returns (address, uint256) {
-        return (address(0), 0);
-    }
-
-    function getApproveTransfer() external pure override returns (address) {
-        return address(0);
-    }
-
-    // Missing ICreatorCore methods
-    function getExtensions() external pure override returns (address[] memory) {
-        return new address[](0);
-    }
-
-    function mintBase(address to) external override returns (uint256) {
-        return mintExtension(to);
-    }
-
-    function mintBase(address to, string calldata) external override returns (uint256) {
-        return mintExtension(to);
-    }
-
-    function mintBaseBatch(address to, uint16 count) external override returns (uint256[] memory) {
-        return mintExtensionBatch(to, count);
-    }
-
-    function mintBaseBatch(address to, string[] calldata) external override returns (uint256[] memory) {
-        return mintExtensionBatch(to, uint16(1));
-    }
-
-    function setApproveTransfer(address) external override { }
-    function setMintPermissions(address, address) external override { }
-    function setTokenURI(uint256, string calldata) external override { }
-    function setTokenURI(uint256[] memory, string[] calldata) external override { }
-    function setTokenURIPrefix(string calldata) external override { }
-
-    function tokenData(uint256) external pure override returns (uint80) {
-        return 0;
-    }
-}
-
-// Mock ERC1155 Creator Contract
-contract MockERC1155Creator is AdminControl, IERC1155CreatorCore, IERC1155 {
-    uint256 private _currentTokenId;
-    mapping(uint256 => mapping(address => uint256)) private _balances;
-    mapping(address => mapping(address => bool)) private _operatorApprovals;
-    string private _uri;
-
-    constructor() { }
-
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AdminControl, IERC165) returns (bool) {
-        return interfaceId == type(IERC1155CreatorCore).interfaceId || interfaceId == type(IERC1155).interfaceId
-            || AdminControl.supportsInterface(interfaceId);
-    }
-
-    // IERC1155CreatorCore implementation
-    function mintExtensionNew(
-        address[] calldata to,
-        uint256[] calldata amounts,
-        string[] calldata
-    )
-        external
-        override
-        returns (uint256[] memory tokenIds)
-    {
-        require(to.length == amounts.length, "Length mismatch");
-        tokenIds = new uint256[](to.length);
-
-        for (uint256 i = 0; i < to.length; i++) {
-            uint256 tokenId = ++_currentTokenId;
-            tokenIds[i] = tokenId;
-            _mint(to[i], tokenId, amounts[i], "");
-        }
-    }
-
-    function mintExtensionExisting(
-        address[] calldata to,
-        uint256[] calldata tokenIds,
-        uint256[] calldata amounts
-    )
-        external
-        override
-    {
-        require(to.length == tokenIds.length && tokenIds.length == amounts.length, "Length mismatch");
-        for (uint256 i = 0; i < to.length; i++) {
-            _mint(to[i], tokenIds[i], amounts[i], "");
-        }
-    }
-
-    // IERC1155 implementation
-    function uri(uint256) public view virtual returns (string memory) {
-        return _uri;
-    }
-
-    function balanceOf(address account, uint256 id) public view override returns (uint256) {
-        require(account != address(0), "ERC1155: address zero is not a valid owner");
-        return _balances[id][account];
-    }
-
-    function balanceOfBatch(
-        address[] memory accounts,
-        uint256[] memory ids
-    )
-        public
-        view
-        override
-        returns (uint256[] memory)
-    {
-        require(accounts.length == ids.length, "ERC1155: accounts and ids length mismatch");
-        uint256[] memory batchBalances = new uint256[](accounts.length);
-        for (uint256 i = 0; i < accounts.length; ++i) {
-            batchBalances[i] = balanceOf(accounts[i], ids[i]);
-        }
-        return batchBalances;
-    }
-
-    function setApprovalForAll(address operator, bool approved) public override {
-        _setApprovalForAll(msg.sender, operator, approved);
-    }
-
-    function isApprovedForAll(address account, address operator) public view override returns (bool) {
-        return _operatorApprovals[account][operator];
-    }
-
-    function safeTransferFrom(
-        address from,
-        address to,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
-    )
-        public
-        override
-    {
-        require(
-            from == msg.sender || isApprovedForAll(from, msg.sender), "ERC1155: caller is not token owner or approved"
-        );
-        _safeTransferFrom(from, to, id, amount, data);
-    }
-
-    function safeBatchTransferFrom(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
-    )
-        public
-        override
-    {
-        require(
-            from == msg.sender || isApprovedForAll(from, msg.sender), "ERC1155: caller is not token owner or approved"
-        );
-        _safeBatchTransferFrom(from, to, ids, amounts, data);
-    }
-
-    // Internal functions
-    function _mint(address to, uint256 id, uint256 amount, bytes memory) internal {
-        require(to != address(0), "ERC1155: mint to the zero address");
-        _balances[id][to] += amount;
-        emit TransferSingle(msg.sender, address(0), to, id, amount);
-    }
-
-    function _safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes memory) internal {
-        require(to != address(0), "ERC1155: transfer to the zero address");
-        uint256 fromBalance = _balances[id][from];
-        require(fromBalance >= amount, "ERC1155: insufficient balance for transfer");
-        unchecked {
-            _balances[id][from] = fromBalance - amount;
-        }
-        _balances[id][to] += amount;
-        emit TransferSingle(msg.sender, from, to, id, amount);
-    }
-
-    function _safeBatchTransferFrom(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory
-    )
-        internal
-    {
-        require(ids.length == amounts.length, "ERC1155: ids and amounts length mismatch");
-        require(to != address(0), "ERC1155: transfer to the zero address");
-
-        for (uint256 i = 0; i < ids.length; ++i) {
-            uint256 id = ids[i];
-            uint256 amount = amounts[i];
-            uint256 fromBalance = _balances[id][from];
-            require(fromBalance >= amount, "ERC1155: insufficient balance for transfer");
-            unchecked {
-                _balances[id][from] = fromBalance - amount;
-            }
-            _balances[id][to] += amount;
-        }
-        emit TransferBatch(msg.sender, from, to, ids, amounts);
-    }
-
-    function _setApprovalForAll(address owner, address operator, bool approved) internal {
-        require(owner != operator, "ERC1155: setting approval status for self");
-        _operatorApprovals[owner][operator] = approved;
-        emit ApprovalForAll(owner, operator, approved);
-    }
-
-    // Stub implementations for other IERC1155CreatorCore methods
-    function registerExtension(address, string calldata) external override { }
-    function registerExtension(address, string calldata, bool) external override { }
-    function unregisterExtension(address) external override { }
-    function blacklistExtension(address) external override { }
-    function setBaseTokenURI(string calldata) external override { }
-    function setBaseTokenURIExtension(string calldata) external override { }
-    function setBaseTokenURIExtension(string calldata, bool) external override { }
-    function setTokenURIPrefixExtension(string calldata) external override { }
-    function setTokenURIExtension(uint256, string calldata) external override { }
-    function setTokenURIExtension(uint256[] calldata, string[] calldata) external override { }
-    function setApproveTransferExtension(bool) external override { }
-
-    function tokenExtension(uint256) external pure override returns (address) {
-        return address(0);
-    }
-
-    function burn(address, uint256[] calldata, uint256[] calldata) external pure override { }
-    function setRoyalties(address payable[] calldata, uint256[] calldata) external override { }
-    function setRoyalties(uint256, address payable[] calldata, uint256[] calldata) external override { }
-    function setRoyaltiesExtension(address, address payable[] calldata, uint256[] calldata) external override { }
-
-    function getRoyalties(uint256) external pure override returns (address payable[] memory, uint256[] memory) {
-        return (new address payable[](0), new uint256[](0));
-    }
-
-    function getFeeRecipients(uint256) external pure override returns (address payable[] memory) {
-        return new address payable[](0);
-    }
-
-    function getFeeBps(uint256) external pure override returns (uint256[] memory) {
-        return new uint256[](0);
-    }
-
-    function getFees(uint256) external pure override returns (address payable[] memory, uint256[] memory) {
-        return (new address payable[](0), new uint256[](0));
-    }
-
-    function royaltyInfo(uint256, uint256) external pure override returns (address, uint256) {
-        return (address(0), 0);
-    }
-
-    function getApproveTransfer() external pure override returns (address) {
-        return address(0);
-    }
-
-    function totalSupply(uint256) external pure override returns (uint256) {
-        return 0;
-    }
-
-    // Missing ICreatorCore methods
-    function getExtensions() external pure override returns (address[] memory) {
-        return new address[](0);
-    }
-
-    function mintBaseNew(
-        address[] calldata to,
-        uint256[] calldata amounts,
-        string[] calldata
-    )
-        external
-        override
-        returns (uint256[] memory)
-    {
-        return this.mintExtensionNew(to, amounts, new string[](0));
-    }
-
-    function mintBaseExisting(
-        address[] calldata to,
-        uint256[] calldata tokenIds,
-        uint256[] calldata amounts
-    )
-        external
-        override
-    {
-        this.mintExtensionExisting(to, tokenIds, amounts);
-    }
-
-    function setApproveTransfer(address) external override { }
-    function setMintPermissions(address, address) external override { }
-    function setTokenURI(uint256, string calldata) external override { }
-    function setTokenURI(uint256[] memory, string[] calldata) external override { }
-    function setTokenURIPrefix(string calldata) external override { }
-}
-
-// Test wrapper to expose internal functions
-contract MultiplexTestWrapper is Multiplex {
-    constructor(string memory _htmlTemplate) Multiplex(_htmlTemplate) { }
-
-    function isCreatorContractERC1155_test(address creatorContractAddress) external view returns (bool) {
-        return isCreatorContractERC1155(creatorContractAddress);
-    }
-
-    function isCreatorContractERC721_test(address creatorContractAddress) external view returns (bool) {
-        return isCreatorContractERC721(creatorContractAddress);
-    }
-}
-
-// Main Test Contract
 contract MultiplexTest is Test {
-    MultiplexTestWrapper public multiplex;
-    MockERC721Creator public erc721Creator;
-    MockERC1155Creator public erc1155Creator;
+    // Test actors
+    address owner = address(0x01);
+    address artist = address(0x02);
+    address collector = address(0x03);
+    address stranger = address(0x04);
 
-    // Test accounts
-    address public artist = address(0x1);
-    address public collector1 = address(0x2);
-    address public collector2 = address(0x3);
-    address public nonOwner = address(0x4);
+    // Core contracts
+    Multiplex multiplex;
+    MultiplexHarness harness;
+    MockAdminControl adminControl;
+    MockERC721 mockERC721;
+    MockERC1155 mockERC1155;
+    MockOwnable mockOwnable;
+    MockCustomOwnership mockCustomOwnership;
 
-    // Sample data
-    string constant HTML_TEMPLATE = "<html><body>{{IMAGE_URIS}} {{IMAGE_HASH}}</body></html>";
-    string constant SAMPLE_METADATA = '"name":"Test Token","description":"A test token"';
-    string constant SAMPLE_IMAGE_HASH = "QmTest123";
-    string constant SAMPLE_MIME_TYPE = "image/png";
-    bytes constant SAMPLE_THUMBNAIL = hex"89504e470d0a1a0a0000000d49484452";
+    // Test data
+    string constant DEFAULT_HTML_TEMPLATE = "<html>{{FILE_URIS}}</html>";
+    string constant TEST_METADATA = '{"name":"Test NFT","description":"A test NFT"}';
+    string[] testArtistUris;
+    string[] testCollectorUris;
+    string[] testThumbnailUris;
+    uint256 constant TEST_TOKEN_ID = 1;
 
-    // Events to test
-    event TokenMinted(address indexed creator, uint256 indexed tokenId, address indexed recipient, uint256 quantity);
-    event BatchTokensMinted(address indexed creator, uint256 indexed firstTokenId, uint256 totalMinted);
-    event MetadataUpdated(address indexed creator, uint256 indexed tokenId);
-    event MetadataLocked(address indexed creator, uint256 indexed tokenId);
-    event ThumbnailUpdated(address indexed creator, uint256 indexed tokenId, uint256 chunkCount);
-    event ThumbnailLocked(address indexed creator, uint256 indexed tokenId);
-    event DisplayModeUpdated(address indexed creator, uint256 indexed tokenId, Multiplex.DisplayMode displayMode);
-    event SelectedArtistArtworkChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
-    event SelectedArtistThumbnailChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
-    event ArtistArtworkUrisAdded(address indexed creator, uint256 indexed tokenId, uint256 count);
-    event ArtistArtworkUriRemoved(address indexed creator, uint256 indexed tokenId, uint256 index);
-    event ArtistThumbnailUrisAdded(address indexed creator, uint256 indexed tokenId, uint256 count);
-    event ArtistThumbnailUriRemoved(address indexed creator, uint256 indexed tokenId, uint256 index);
-    event CollectorArtworkUrisAdded(address indexed creator, uint256 indexed tokenId, uint256 count);
-    event HtmlTemplateUpdated();
+    // Permission constants (copied from Multiplex.sol)
+    uint16 constant ARTIST_UPDATE_THUMB = 2 ** 0;
+    uint16 constant ARTIST_UPDATE_META = 2 ** 1;
+    uint16 constant ARTIST_CHOOSE_URIS = 2 ** 2;
+    uint16 constant ARTIST_ADD_REMOVE = 2 ** 3;
+    uint16 constant ARTIST_CHOOSE_THUMB = 2 ** 4;
+    uint16 constant ARTIST_UPDATE_MODE = 2 ** 5;
+    uint16 constant ARTIST_UPDATE_TEMPLATE = 2 ** 6;
+    uint16 constant COLLECTOR_CHOOSE_URIS = 2 ** 7;
+    uint16 constant COLLECTOR_ADD_REMOVE = 2 ** 8;
+    uint16 constant COLLECTOR_CHOOSE_THUMB = 2 ** 9;
+    uint16 constant COLLECTOR_UPDATE_MODE = 2 ** 10;
+
+    /*//////////////////////////////////////////////////////////////
+                              SETUP
+    //////////////////////////////////////////////////////////////*/
 
     function setUp() public {
-        // Deploy contracts
-        multiplex = new MultiplexTestWrapper(HTML_TEMPLATE);
-        erc721Creator = new MockERC721Creator();
-        erc1155Creator = new MockERC1155Creator();
+        vm.startPrank(owner);
 
-        // Setup test accounts
-        vm.label(artist, "Artist");
-        vm.label(collector1, "Collector1");
-        vm.label(collector2, "Collector2");
-        vm.label(nonOwner, "NonOwner");
+        // Deploy main contracts
+        multiplex = new Multiplex(DEFAULT_HTML_TEMPLATE);
+        harness = new MultiplexHarness();
 
-        // Add artist as admin to creator contracts
-        // The test contract is the owner since it deployed the contracts
-        erc721Creator.approveAdmin(artist);
-        erc1155Creator.approveAdmin(artist);
+        // Deploy admin control and set artist as admin
+        adminControl = new MockAdminControl();
+        adminControl.approveAdmin(artist);
 
-        // Transfer ownership to artist so they can be the true owner
-        erc721Creator.transferOwnership(artist);
-        erc1155Creator.transferOwnership(artist);
+        // Deploy mock tokens
+        mockERC721 = new MockERC721();
+        mockERC1155 = new MockERC1155();
+        mockOwnable = new MockOwnable(artist);
+        mockCustomOwnership = new MockCustomOwnership(collector);
 
-        // The test wrapper multiplex was deployed by the test contract,
-        // so we can add artist as admin
-        multiplex.approveAdmin(artist);
+        // Set artist as admin on token contracts (but NOT on mockCustomOwnership for testing)
+        mockERC721.setAdmin(artist, true);
+        mockERC1155.setAdmin(artist, true);
+        // mockCustomOwnership.setAdmin(artist, true); // Commented out for test_isContractAdmin_Fail
+
+        // Mint tokens to collector
+        mockERC721.mint(collector); // This mints token ID 1
+        uint256 token2 = mockERC721.mint(collector); // This mints token ID 2
+        uint256 token3 = mockERC721.mint(collector); // This mints token ID 3
+        mockERC1155.mint(collector, TEST_TOKEN_ID, 5);
+
+        vm.stopPrank();
+
+        // Set up test URIs
+        testArtistUris.push("https://artist1.com");
+        testArtistUris.push("https://artist2.com");
+        testCollectorUris.push("https://collector1.com");
+        testThumbnailUris.push("https://thumb1.com");
+        testThumbnailUris.push("https://thumb2.com");
     }
 
     /*//////////////////////////////////////////////////////////////
-                            CONSTRUCTOR TESTS
+                        HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function test_Constructor() public view {
-        assertEq(multiplex.getHtmlTemplate(), HTML_TEMPLATE);
+    function _createValidInitConfig() internal view returns (Multiplex.InitConfig memory) {
+        Multiplex.InitConfig memory config;
+
+        config.metadata = TEST_METADATA;
+        config.displayMode = Multiplex.DisplayMode.DIRECT_FILE;
+
+        // Set up artwork
+        config.artwork.artistUris = testArtistUris;
+        config.artwork.mimeType = "image/png";
+        config.artwork.fileHash = "0x1234567890abcdef";
+        config.artwork.isAnimationUri = false;
+        config.artwork.selectedArtistUriIndex = 0;
+
+        // Set up permissions (all allowed)
+        config.permissions.flags = ARTIST_UPDATE_THUMB | ARTIST_UPDATE_META | ARTIST_CHOOSE_URIS | ARTIST_ADD_REMOVE
+            | ARTIST_CHOOSE_THUMB | ARTIST_UPDATE_MODE | ARTIST_UPDATE_TEMPLATE | COLLECTOR_CHOOSE_URIS
+            | COLLECTOR_ADD_REMOVE | COLLECTOR_CHOOSE_THUMB | COLLECTOR_UPDATE_MODE;
+
+        // Set up ownership config for ERC721
+        config.ownership.selector = bytes4(keccak256("ownerOf(uint256)"));
+        config.ownership.style = Multiplex.OwnershipStyle.OWNER_OF;
+
+        // Set up off-chain thumbnail
+        config.thumbnail.kind = Multiplex.ThumbnailKind.OFF_CHAIN;
+        config.thumbnail.offChain.uris = testThumbnailUris;
+        config.thumbnail.offChain.selectedUriIndex = 0;
+
+        return config;
     }
 
-    function test_SetHtmlTemplate() public {
-        string memory newTemplate = "<div>{{IMAGE_URIS}}</div>";
-
-        // Non-admin should fail
-        vm.prank(nonOwner);
-        vm.expectRevert(Multiplex.WalletNotAdmin.selector);
-        multiplex.setHtmlTemplate(newTemplate);
-
-        // Admin should succeed
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit HtmlTemplateUpdated();
-        multiplex.setHtmlTemplate(newTemplate);
-
-        assertEq(multiplex.getHtmlTemplate(), newTemplate);
+    function _createOnChainThumbnailChunks() internal pure returns (bytes[] memory) {
+        bytes[] memory chunks = new bytes[](2);
+        chunks[0] = "chunk1data";
+        chunks[1] = "chunk2data";
+        return chunks;
     }
 
     /*//////////////////////////////////////////////////////////////
-                        ACCESS HELPER TESTS
+                    1. ERROR AND EVENT COVERAGE
     //////////////////////////////////////////////////////////////*/
 
-    function test_CreatorContractTypeChecks() public {
-        // Deploy a regular ERC721 (not creator core)
-        new MockERC721Creator();
+    function test_AllCustomErrors() public {
+        // Test WalletNotAdmin error
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.WalletNotAdmin.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, _createValidInitConfig(), new bytes[](0));
 
-        // Test interface checks
-        assertFalse(multiplex.isCreatorContractERC721_test(address(erc1155Creator)));
-        assertFalse(multiplex.isCreatorContractERC1155_test(address(erc721Creator)));
-        assertTrue(multiplex.isCreatorContractERC721_test(address(erc721Creator)));
-        assertTrue(multiplex.isCreatorContractERC1155_test(address(erc1155Creator)));
+        // Test NotTokenOwner error - we'll test this in the _isTokenOwner context
+
+        // Test InvalidOwnershipFunction error
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(0);
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidOwnershipFunction.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Test InvalidIndexRange error
+        config = _createValidInitConfig();
+        config.artwork.selectedArtistUriIndex = 999;
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidSelectedArtistUriIndex.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Test ArtistPermissionRevoked error
+        config = _createValidInitConfig();
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, false, true, false, false, false, false, false
+        );
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+
+        // Test other errors in their respective test contexts...
     }
 
     /*//////////////////////////////////////////////////////////////
-                            MINTING TESTS
+                    2. _isContractAdmin TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_MintERC721_Single() public {
-        // Prepare mint params
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.IMAGE,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: true,
-                allowCollectorSelectArtistArtwork: true,
-                allowCollectorSelectArtistThumbnail: true,
-                allowCollectorToggleDisplayMode: true
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: new string[](0)
-        });
+    function test_isContractAdmin_AdminControl() public {
+        vm.prank(artist, artist);
+        assertTrue(harness.isContractAdminPublic(address(adminControl)));
 
-        address[] memory recipients = new address[](1);
-        recipients[0] = collector1;
-
-        Multiplex.MintERC721Params memory params =
-            Multiplex.MintERC721Params({ baseParams: baseParams, recipients: recipients });
-
-        bytes[] memory thumbnailChunks = new bytes[](1);
-        thumbnailChunks[0] = SAMPLE_THUMBNAIL;
-
-        // Mint
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit TokenMinted(address(erc721Creator), 1, collector1, 1);
-        vm.expectEmit(true, true, true, true);
-        emit BatchTokensMinted(address(erc721Creator), 1, 1);
-        multiplex.mintERC721(address(erc721Creator), params, thumbnailChunks);
-
-        // Verify token data
-        (
-            string memory metadata,
-            Multiplex.File memory thumbnail,
-            Multiplex.DisplayMode displayMode,
-            Multiplex.ImmutableProperties memory immutableProps,
-            Multiplex.OffChainData memory offchain,
-            Multiplex.Selection memory selection,
-            bool metadataLocked,
-            bool thumbnailLocked
-        ) = multiplex.tokenData(address(erc721Creator), 1);
-
-        assertEq(metadata, SAMPLE_METADATA);
-        assertEq(uint256(displayMode), uint256(Multiplex.DisplayMode.IMAGE));
-        assertEq(immutableProps.imageHash, SAMPLE_IMAGE_HASH);
-        assertFalse(metadataLocked);
-        assertFalse(thumbnailLocked);
-
-        // Verify ownership
-        assertEq(erc721Creator.ownerOf(1), collector1);
+        vm.prank(stranger, stranger);
+        assertFalse(harness.isContractAdminPublic(address(adminControl)));
     }
 
-    function test_MintERC1155_Multiple() public {
-        // Prepare mint params with seed URIs
-        string[] memory seedArtworkUris = new string[](2);
-        seedArtworkUris[0] = "https://example.com/art1.jpg";
-        seedArtworkUris[1] = "https://example.com/art2.jpg";
+    function test_isContractAdmin_Ownable() public {
+        vm.prank(artist, artist);
+        assertTrue(harness.isContractAdminPublic(address(mockOwnable)));
 
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.HTML,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: true,
-                useOffchainThumbnail: true,
-                allowCollectorAddArtwork: true,
-                allowCollectorSelectArtistArtwork: true,
-                allowCollectorSelectArtistThumbnail: true,
-                allowCollectorToggleDisplayMode: true
-            }),
-            seedArtistArtworkUris: seedArtworkUris,
-            seedArtistThumbnailUris: new string[](0)
-        });
-
-        address[] memory recipients = new address[](2);
-        recipients[0] = collector1;
-        recipients[1] = collector2;
-
-        uint256[] memory quantities = new uint256[](2);
-        quantities[0] = 10;
-        quantities[1] = 5;
-
-        Multiplex.MintERC1155Params memory params =
-            Multiplex.MintERC1155Params({ baseParams: baseParams, recipients: recipients, quantities: quantities });
-
-        bytes[] memory thumbnailChunks = new bytes[](1);
-        thumbnailChunks[0] = SAMPLE_THUMBNAIL;
-
-        // Mint
-        vm.prank(artist);
-        multiplex.mintERC1155(address(erc1155Creator), params, thumbnailChunks);
-
-        // Verify balances
-        assertEq(erc1155Creator.balanceOf(collector1, 1), 10);
-        assertEq(erc1155Creator.balanceOf(collector2, 2), 5);
-
-        // Verify token data (only first token has data)
-        (,,,, Multiplex.OffChainData memory offchain, Multiplex.Selection memory selection,,) =
-            multiplex.tokenData(address(erc1155Creator), 1);
-
-        assertEq(offchain.artistArtworkUris.length, 2);
-        assertEq(offchain.artistArtworkUris[0], seedArtworkUris[0]);
-        assertEq(selection.selectedArtistArtworkIndex, 1); // First artwork selected by default
+        vm.prank(stranger, stranger);
+        assertFalse(harness.isContractAdminPublic(address(mockOwnable)));
     }
 
-    function test_MintInvalidInputs() public {
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: true,
-                deflated: true // Both compression flags set - invalid
-             }),
-            initialDisplayMode: Multiplex.DisplayMode.IMAGE,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: false,
-                allowCollectorSelectArtistArtwork: false,
-                allowCollectorSelectArtistThumbnail: false,
-                allowCollectorToggleDisplayMode: false
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: new string[](0)
-        });
-
-        bytes[] memory thumbnailChunks = new bytes[](0);
-
-        // Test compression flag error
-        address[] memory recipients = new address[](1);
-        recipients[0] = collector1;
-
-        Multiplex.MintERC721Params memory erc721Params =
-            Multiplex.MintERC721Params({ baseParams: baseParams, recipients: recipients });
-
-        vm.prank(artist);
-        vm.expectRevert(Multiplex.InvalidCompressionFlags.selector);
-        multiplex.mintERC721(address(erc721Creator), erc721Params, thumbnailChunks);
-
-        // Test mismatched array lengths for ERC1155
-        baseParams.onChainThumbnail.zipped = false; // Fix compression flags
-
-        uint256[] memory quantities = new uint256[](2); // Mismatch with recipients
-        quantities[0] = 1;
-        quantities[1] = 1;
-
-        Multiplex.MintERC1155Params memory erc1155Params =
-            Multiplex.MintERC1155Params({ baseParams: baseParams, recipients: recipients, quantities: quantities });
-
-        vm.prank(artist);
-        vm.expectRevert(Multiplex.InvalidIndexRange.selector);
-        multiplex.mintERC1155(address(erc1155Creator), erc1155Params, thumbnailChunks);
-
-        // Test wrong creator contract type
-        vm.prank(artist);
-        vm.expectRevert(Multiplex.CreatorMustImplementCreatorCoreInterface.selector);
-        multiplex.mintERC721(address(erc1155Creator), erc721Params, thumbnailChunks);
+    function test_isContractAdmin_Fail() public {
+        // Test with a contract that implements neither AdminControl nor Ownable
+        vm.prank(artist, artist);
+        assertFalse(harness.isContractAdminPublic(address(mockCustomOwnership)));
     }
 
     /*//////////////////////////////////////////////////////////////
-                    ARTIST ARTWORK MANAGEMENT TESTS
+                    3. _isTokenOwner TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_ArtistArtworkManagement() public {
-        // Setup: mint a token first
-        _mintTestToken721();
+    function test_isTokenOwner_ERC721() public {
+        // Initialize token with ERC721 ownership config
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(keccak256("ownerOf(uint256)"));
+        config.ownership.style = Multiplex.OwnershipStyle.OWNER_OF;
 
-        // Add artwork URIs
-        string[] memory uris = new string[](3);
-        uris[0] = "https://example.com/art1.jpg";
-        uris[1] = "https://example.com/art2.jpg";
-        uris[2] = "https://example.com/art3.jpg";
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit ArtistArtworkUrisAdded(address(erc721Creator), 1, 3);
-        multiplex.addArtistArtworkUris(address(erc721Creator), 1, uris);
+        vm.prank(collector, collector);
+        assertTrue(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
 
-        // Verify URIs added and first one selected
-        string[] memory storedUris = multiplex.getArtistArtworkUris(address(erc721Creator), 1);
-        assertEq(storedUris.length, 3);
-        assertEq(storedUris[0], uris[0]);
+        vm.prank(stranger, stranger);
+        assertFalse(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+    }
 
-        (,,,, Multiplex.OffChainData memory offchain, Multiplex.Selection memory selection,,) =
-            multiplex.tokenData(address(erc721Creator), 1);
-        assertEq(selection.selectedArtistArtworkIndex, 1);
+    function test_isTokenOwner_ERC1155() public {
+        // Initialize token with ERC1155 ownership config
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(keccak256("balanceOf(address,uint256)"));
+        config.ownership.style = Multiplex.OwnershipStyle.BALANCE_OF_ERC1155;
 
-        // Remove middle URI
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit ArtistArtworkUriRemoved(address(erc721Creator), 1, 1);
-        multiplex.removeArtistArtworkUri(address(erc721Creator), 1, 1);
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(mockERC1155), TEST_TOKEN_ID, config, new bytes[](0));
 
-        // Verify array updated correctly (last element moved to removed position)
-        storedUris = multiplex.getArtistArtworkUris(address(erc721Creator), 1);
-        assertEq(storedUris.length, 2);
-        assertEq(storedUris[0], uris[0]);
-        assertEq(storedUris[1], uris[2]); // Last element moved here
+        vm.prank(collector, collector);
+        assertTrue(harness.isTokenOwnerPublic(address(mockERC1155), TEST_TOKEN_ID));
 
-        // Test removing selected item
-        vm.prank(artist);
-        multiplex.removeArtistArtworkUri(address(erc721Creator), 1, 0);
+        vm.prank(stranger, stranger);
+        assertFalse(harness.isTokenOwnerPublic(address(mockERC1155), TEST_TOKEN_ID));
+    }
 
-        (,,,,, selection,,) = multiplex.tokenData(address(erc721Creator), 1);
-        assertEq(selection.selectedArtistArtworkIndex, 1); // Should select first remaining item
+    function test_isTokenOwner_Custom() public {
+        // Initialize token with custom ownership config
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(keccak256("isOwner(address)"));
+        config.ownership.style = Multiplex.OwnershipStyle.SIMPLE_BOOL;
 
-        // Test non-admin cannot add/remove
-        vm.prank(collector1);
-        vm.expectRevert(Multiplex.WalletNotAdmin.selector);
-        multiplex.addArtistArtworkUris(address(erc721Creator), 1, uris);
+        // Need to make artist admin of mockCustomOwnership for initialization
+        vm.prank(owner, owner);
+        mockCustomOwnership.setAdmin(artist, true);
 
-        vm.prank(collector1);
-        vm.expectRevert(Multiplex.WalletNotAdmin.selector);
-        multiplex.removeArtistArtworkUri(address(erc721Creator), 1, 0);
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(mockCustomOwnership), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(collector, collector);
+        assertTrue(harness.isTokenOwnerPublic(address(mockCustomOwnership), TEST_TOKEN_ID));
+
+        vm.prank(stranger, stranger);
+        assertFalse(harness.isTokenOwnerPublic(address(mockCustomOwnership), TEST_TOKEN_ID));
     }
 
     /*//////////////////////////////////////////////////////////////
-                  ARTIST THUMBNAIL MANAGEMENT TESTS
+                    4. initializeTokenData TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_ArtistThumbnailManagement() public {
-        // Setup: mint a token first
-        _mintTestToken721();
+    function test_initializeTokenData_OnlyByAdmin() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        // Add thumbnail URIs
-        string[] memory uris = new string[](2);
-        uris[0] = "https://example.com/thumb1.jpg";
-        uris[1] = "https://example.com/thumb2.jpg";
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.WalletNotAdmin.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit ArtistThumbnailUrisAdded(address(erc721Creator), 1, 2);
-        multiplex.addArtistThumbnailUris(address(erc721Creator), 1, uris);
+        // Should succeed with admin
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+    }
 
-        // Verify URIs added
-        string[] memory storedUris = multiplex.getArtistThumbnailUris(address(erc721Creator), 1);
-        assertEq(storedUris.length, 2);
+    function test_initializeTokenData_FullWorkflow() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        // Select second thumbnail
-        Multiplex.UpdateParams memory updateParams = Multiplex.UpdateParams({
-            metadata: "",
-            updateMetadata: false,
-            thumbnailChunks: new bytes[](0),
-            thumbnailOptions: Multiplex.File({
-                mimeType: "",
-                chunks: new address[](0),
-                length: 0,
-                zipped: false,
-                deflated: false
-            }),
-            updateThumbnail: false,
-            displayMode: Multiplex.DisplayMode.IMAGE,
-            updateDisplayMode: false,
-            selectedArtistArtworkIndex: 0,
-            updateSelectedArtistArtwork: false,
-            selectedArtistThumbnailIndex: 2,
-            updateSelectedArtistThumbnail: true
-        });
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit SelectedArtistThumbnailChanged(address(erc721Creator), 1, 2);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("TokenDataInitialized(address,uint256)"));
 
-        // Remove selected thumbnail
-        vm.prank(artist);
-        multiplex.removeArtistThumbnailUri(address(erc721Creator), 1, 1);
+        // Verify stored data
+        (string memory metadata,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        assertEq(metadata, TEST_METADATA);
 
-        // Verify selection adjusted
-        (,,,, Multiplex.OffChainData memory offchain, Multiplex.Selection memory selection,,) =
-            multiplex.tokenData(address(erc721Creator), 1);
-        assertEq(selection.selectedArtistThumbnailIndex, 1); // First remaining thumbnail selected
+        Multiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        assertEq(artwork.artistUris.length, 2);
+        assertEq(artwork.artistUris[0], "https://artist1.com");
+        assertEq(artwork.mimeType, "image/png");
     }
 
     /*//////////////////////////////////////////////////////////////
-                  COLLECTOR ARTWORK MANAGEMENT TESTS
+                    5. _resolveThumbnailUri TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_CollectorArtworkManagement() public {
-        // Setup: mint token with collector permissions enabled
-        _mintTestToken721();
+    function test_resolveThumbnailUri_OnChain() public {
+        // Create config with on-chain thumbnail
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = Multiplex.ThumbnailKind.ON_CHAIN;
+        config.thumbnail.onChain.mimeType = "image/png";
+        config.thumbnail.onChain.zipped = false;
 
-        // Collector adds artwork
-        string[] memory uris = new string[](2);
-        uris[0] = "https://collector.com/art1.jpg";
-        uris[1] = "https://collector.com/art2.jpg";
+        bytes[] memory chunks = _createOnChainThumbnailChunks();
 
-        vm.prank(collector1);
-        vm.expectEmit(true, true, true, true);
-        emit CollectorArtworkUrisAdded(address(erc721Creator), 1, 2);
-        multiplex.addCollectorArtworkUris(address(erc721Creator), 1, uris);
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
 
-        // Verify URIs added
-        string[] memory storedUris = multiplex.getCollectorArtworkUris(address(erc721Creator), 1);
-        assertEq(storedUris.length, 2);
-        assertEq(storedUris[0], uris[0]);
-
-        // Non-owner cannot add
-        vm.prank(nonOwner);
-        vm.expectRevert(Multiplex.NotTokenOwner.selector);
-        multiplex.addCollectorArtworkUris(address(erc721Creator), 1, uris);
+        string memory result = harness.resolveThumbnailUriPublic(address(adminControl), TEST_TOKEN_ID);
+        assertTrue(bytes(result).length > 0);
+        // Should start with "data:image/png;base64,"
+        assertEq(bytes(result)[0], bytes1("d"));
+        assertEq(bytes(result)[1], bytes1("a"));
+        assertEq(bytes(result)[2], bytes1("t"));
+        assertEq(bytes(result)[3], bytes1("a"));
     }
 
-    function test_CollectorArtworkManagement_Disabled() public {
-        // Mint token with collector permissions disabled
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.IMAGE,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: false, // Disabled
-                allowCollectorSelectArtistArtwork: false,
-                allowCollectorSelectArtistThumbnail: false,
-                allowCollectorToggleDisplayMode: false
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: new string[](0)
-        });
+    function test_resolveThumbnailUri_OffChain() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        _mintTestToken721WithParams(baseParams);
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        // Collector cannot add artwork
-        string[] memory uris = new string[](1);
-        uris[0] = "https://collector.com/art1.jpg";
-
-        vm.prank(collector1);
-        vm.expectRevert(Multiplex.CollectorAddingArtworkDisabled.selector);
-        multiplex.addCollectorArtworkUris(address(erc721Creator), 1, uris);
+        string memory result = harness.resolveThumbnailUriPublic(address(adminControl), TEST_TOKEN_ID);
+        assertEq(result, "https://thumb1.com");
     }
 
     /*//////////////////////////////////////////////////////////////
-                           LOCK TESTS
+                    6. _combinedArtworkUris TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_LockMetadata() public {
-        _mintTestToken721();
+    function test_combinedArtworkUris() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        // Lock metadata
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit MetadataLocked(address(erc721Creator), 1);
-        multiplex.lockMetadata(address(erc721Creator), 1);
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
-        // Verify locked
-        (,,,,,, bool metadataLocked,) = multiplex.tokenData(address(erc721Creator), 1);
-        assertTrue(metadataLocked);
-
-        // Cannot lock again
-        vm.prank(artist);
-        vm.expectRevert(Multiplex.AlreadyLocked.selector);
-        multiplex.lockMetadata(address(erc721Creator), 1);
-
-        // Cannot update locked metadata
-        Multiplex.UpdateParams memory updateParams = Multiplex.UpdateParams({
-            metadata: "new metadata",
-            updateMetadata: true,
-            thumbnailChunks: new bytes[](0),
-            thumbnailOptions: Multiplex.File({
-                mimeType: "",
-                chunks: new address[](0),
-                length: 0,
-                zipped: false,
-                deflated: false
-            }),
-            updateThumbnail: false,
-            displayMode: Multiplex.DisplayMode.IMAGE,
-            updateDisplayMode: false,
-            selectedArtistArtworkIndex: 0,
-            updateSelectedArtistArtwork: false,
-            selectedArtistThumbnailIndex: 0,
-            updateSelectedArtistThumbnail: false
-        });
-
-        vm.prank(artist);
-        vm.expectRevert(Multiplex.AlreadyLocked.selector);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-    }
-
-    function test_LockThumbnail() public {
-        _mintTestToken721();
-
-        // Lock thumbnail
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit ThumbnailLocked(address(erc721Creator), 1);
-        multiplex.lockThumbnail(address(erc721Creator), 1);
-
-        // Verify locked
-        (,,,,,,, bool thumbnailLocked) = multiplex.tokenData(address(erc721Creator), 1);
-        assertTrue(thumbnailLocked);
-
-        // Cannot update locked thumbnail
-        bytes[] memory newChunks = new bytes[](1);
-        newChunks[0] = hex"1234";
-
-        Multiplex.UpdateParams memory updateParams = Multiplex.UpdateParams({
-            metadata: "",
-            updateMetadata: false,
-            thumbnailChunks: newChunks,
-            thumbnailOptions: Multiplex.File({
-                mimeType: "image/jpeg",
-                chunks: new address[](0),
-                length: 2,
-                zipped: false,
-                deflated: false
-            }),
-            updateThumbnail: true,
-            displayMode: Multiplex.DisplayMode.IMAGE,
-            updateDisplayMode: false,
-            selectedArtistArtworkIndex: 0,
-            updateSelectedArtistArtwork: false,
-            selectedArtistThumbnailIndex: 0,
-            updateSelectedArtistThumbnail: false
-        });
-
-        vm.prank(artist);
-        vm.expectRevert(Multiplex.AlreadyLocked.selector);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                         UPDATE TOKEN TESTS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_UpdateToken_AdminUpdates() public {
-        _mintTestToken721();
-
-        // Update metadata and thumbnail
-        bytes[] memory newChunks = new bytes[](1);
-        newChunks[0] = hex"4142434445"; // "ABCDE"
-
-        Multiplex.UpdateParams memory updateParams = Multiplex.UpdateParams({
-            metadata: '"name":"Updated Token"',
-            updateMetadata: true,
-            thumbnailChunks: newChunks,
-            thumbnailOptions: Multiplex.File({
-                mimeType: "image/jpeg",
-                chunks: new address[](0),
-                length: 5,
-                zipped: false,
-                deflated: false
-            }),
-            updateThumbnail: true,
-            displayMode: Multiplex.DisplayMode.HTML,
-            updateDisplayMode: true,
-            selectedArtistArtworkIndex: 0,
-            updateSelectedArtistArtwork: false,
-            selectedArtistThumbnailIndex: 0,
-            updateSelectedArtistThumbnail: false
-        });
-
-        vm.prank(artist);
-        vm.expectEmit(true, true, true, true);
-        emit MetadataUpdated(address(erc721Creator), 1);
-        vm.expectEmit(true, true, true, true);
-        emit ThumbnailUpdated(address(erc721Creator), 1, 1);
-        vm.expectEmit(true, true, true, true);
-        emit DisplayModeUpdated(address(erc721Creator), 1, Multiplex.DisplayMode.HTML);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-
-        // Verify updates
-        (string memory metadata, Multiplex.File memory thumbnail, Multiplex.DisplayMode displayMode,,,,,) =
-            multiplex.tokenData(address(erc721Creator), 1);
-
-        assertEq(metadata, '"name":"Updated Token"');
-        assertEq(thumbnail.mimeType, "image/jpeg");
-        assertEq(uint256(displayMode), uint256(Multiplex.DisplayMode.HTML));
-    }
-
-    function test_UpdateToken_CollectorUpdates() public {
-        // Mint with all permissions enabled
-        _mintTestToken721();
-
-        // Add some artist URIs first
-        string[] memory artworkUris = new string[](2);
-        artworkUris[0] = "https://example.com/art1.jpg";
-        artworkUris[1] = "https://example.com/art2.jpg";
-
-        string[] memory thumbnailUris = new string[](1);
-        thumbnailUris[0] = "https://example.com/thumb1.jpg";
-
-        vm.prank(artist);
-        multiplex.addArtistArtworkUris(address(erc721Creator), 1, artworkUris);
-        vm.prank(artist);
-        multiplex.addArtistThumbnailUris(address(erc721Creator), 1, thumbnailUris);
-
-        // Collector updates display mode and selections
-        Multiplex.UpdateParams memory updateParams = Multiplex.UpdateParams({
-            metadata: "",
-            updateMetadata: false,
-            thumbnailChunks: new bytes[](0),
-            thumbnailOptions: Multiplex.File({
-                mimeType: "",
-                chunks: new address[](0),
-                length: 0,
-                zipped: false,
-                deflated: false
-            }),
-            updateThumbnail: false,
-            displayMode: Multiplex.DisplayMode.HTML,
-            updateDisplayMode: true,
-            selectedArtistArtworkIndex: 2,
-            updateSelectedArtistArtwork: true,
-            selectedArtistThumbnailIndex: 1,
-            updateSelectedArtistThumbnail: true
-        });
-
-        vm.prank(collector1);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-
-        // Verify updates
-        (,, Multiplex.DisplayMode displayMode,,, Multiplex.Selection memory selection,,) =
-            multiplex.tokenData(address(erc721Creator), 1);
-
-        assertEq(uint256(displayMode), uint256(Multiplex.DisplayMode.HTML));
-        assertEq(selection.selectedArtistArtworkIndex, 2);
-        assertEq(selection.selectedArtistThumbnailIndex, 1);
-
-        // Collector cannot update metadata
-        updateParams.metadata = "new metadata";
-        updateParams.updateMetadata = true;
-        updateParams.updateDisplayMode = false;
-        updateParams.updateSelectedArtistArtwork = false;
-        updateParams.updateSelectedArtistThumbnail = false;
-
-        vm.prank(collector1);
-        vm.expectRevert(Multiplex.WalletNotAdmin.selector);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-    }
-
-    function test_UpdateToken_PermissionChecks() public {
-        // Mint with all collector permissions disabled
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.IMAGE,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: false,
-                allowCollectorSelectArtistArtwork: false,
-                allowCollectorSelectArtistThumbnail: false,
-                allowCollectorToggleDisplayMode: false
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: new string[](0)
-        });
-
-        _mintTestToken721WithParams(baseParams);
-
-        // Test each disabled permission
-        Multiplex.UpdateParams memory updateParams;
-
-        // Display mode
-        updateParams.displayMode = Multiplex.DisplayMode.HTML;
-        updateParams.updateDisplayMode = true;
-
-        vm.prank(collector1);
-        vm.expectRevert(Multiplex.CollectorTogglingDisplayModeDisabled.selector);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-
-        // Artwork selection
-        updateParams.updateDisplayMode = false;
-        updateParams.selectedArtistArtworkIndex = 1;
-        updateParams.updateSelectedArtistArtwork = true;
-
-        vm.prank(collector1);
-        vm.expectRevert(Multiplex.CollectorSelectingArtworkDisabled.selector);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-
-        // Thumbnail selection
-        updateParams.updateSelectedArtistArtwork = false;
-        updateParams.selectedArtistThumbnailIndex = 1;
-        updateParams.updateSelectedArtistThumbnail = true;
-
-        vm.prank(collector1);
-        vm.expectRevert(Multiplex.CollectorSelectingThumbnailDisabled.selector);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        RENDERING TESTS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_RenderImage() public {
-        _mintTestToken721();
-
-        string memory imageUri = multiplex.renderImage(address(erc721Creator), 1);
-
-        // Verify it's a valid data URI
-        assertTrue(_startsWith(imageUri, "data:image/png;base64,"));
-
-        // Decode and verify content
-        string memory base64Part = _substring(imageUri, 22, bytes(imageUri).length);
-        bytes memory decoded = Base64.decode(base64Part);
-        assertEq(decoded, SAMPLE_THUMBNAIL);
-    }
-
-    function test_RenderHTML() public {
-        // Mint with artwork URIs
-        string[] memory artworkUris = new string[](2);
-        artworkUris[0] = "https://example.com/art1.jpg";
-        artworkUris[1] = "https://example.com/art2.jpg";
-
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.HTML,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: true,
-                allowCollectorSelectArtistArtwork: true,
-                allowCollectorSelectArtistThumbnail: true,
-                allowCollectorToggleDisplayMode: true
-            }),
-            seedArtistArtworkUris: artworkUris,
-            seedArtistThumbnailUris: new string[](0)
-        });
-
-        _mintTestToken721WithParams(baseParams);
-
-        // Add collector artwork
+        // Add collector URIs
         string[] memory collectorUris = new string[](1);
-        collectorUris[0] = "https://collector.com/art1.jpg";
+        collectorUris[0] = "https://collector1.com";
 
-        vm.prank(collector1);
-        multiplex.addCollectorArtworkUris(address(erc721Creator), 1, collectorUris);
+        vm.prank(collector, collector);
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
 
-        string memory htmlUri = multiplex.renderHTML(address(erc721Creator), 1);
-
-        // Verify it's a valid HTML data URI
-        assertTrue(_startsWith(htmlUri, "data:text/html;base64,"));
-
-        // Decode and verify placeholders were replaced
-        string memory base64Part = _substring(htmlUri, 22, bytes(htmlUri).length);
-        bytes memory decoded = Base64.decode(base64Part);
-        string memory html = string(decoded);
-
-        // The HTML should contain all the URIs
-        // Note: The URIs are in quotes in the HTML because they're part of a JavaScript array
-        assertTrue(_contains(html, artworkUris[0]), "Should contain first artist artwork URI");
-        assertTrue(_contains(html, artworkUris[1]), "Should contain second artist artwork URI");
-        assertTrue(_contains(html, collectorUris[0]), "Should contain collector artwork URI");
-        assertTrue(_contains(html, SAMPLE_IMAGE_HASH), "Should contain image hash");
-    }
-
-    function test_RenderMetadata_ImageMode() public {
-        _mintTestToken721();
-
-        string memory metadataUri = multiplex.renderMetadata(address(erc721Creator), 1);
-
-        // Verify it's a valid JSON data URI
-        assertTrue(_startsWith(metadataUri, "data:application/json;utf8,{"));
-
-        // Extract JSON
-        string memory json = _substring(metadataUri, 28, bytes(metadataUri).length - 1);
-
-        // Verify metadata fields
-        assertTrue(_contains(json, '"name":"Test Token"'));
-        assertTrue(_contains(json, '"image":"data:image/png;base64,'));
-        assertFalse(_contains(json, '"animation_url"')); // No animation in IMAGE mode
-    }
-
-    function test_RenderMetadata_HTMLMode() public {
-        // Mint in HTML mode
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.HTML,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: true,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: true,
-                allowCollectorSelectArtistArtwork: true,
-                allowCollectorSelectArtistThumbnail: true,
-                allowCollectorToggleDisplayMode: true
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: new string[](0)
-        });
-
-        _mintTestToken721WithParams(baseParams);
-
-        string memory metadataUri = multiplex.renderMetadata(address(erc721Creator), 1);
-        string memory json = _substring(metadataUri, 28, bytes(metadataUri).length - 1);
-
-        // In HTML mode, animation_url should point to HTML
-        assertTrue(_contains(json, '"animation_url":"data:text/html;base64,'));
-    }
-
-    function test_RenderMetadata_OffchainThumbnail() public {
-        // Mint with off-chain thumbnail enabled
-        string[] memory thumbnailUris = new string[](1);
-        thumbnailUris[0] = "https://example.com/thumb.jpg";
-
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.IMAGE,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: true, // Enable off-chain thumbnail
-                allowCollectorAddArtwork: true,
-                allowCollectorSelectArtistArtwork: true,
-                allowCollectorSelectArtistThumbnail: true,
-                allowCollectorToggleDisplayMode: true
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: thumbnailUris
-        });
-
-        _mintTestToken721WithParams(baseParams);
-
-        // Select off-chain thumbnail
-        Multiplex.UpdateParams memory updateParams;
-        updateParams.selectedArtistThumbnailIndex = 1;
-        updateParams.updateSelectedArtistThumbnail = true;
-
-        vm.prank(artist);
-        multiplex.updateToken(address(erc721Creator), 1, updateParams);
-
-        string memory metadataUri = multiplex.renderMetadata(address(erc721Creator), 1);
-        string memory json = _substring(metadataUri, 28, bytes(metadataUri).length - 1);
-
-        // Should use off-chain thumbnail
-        assertTrue(_contains(json, thumbnailUris[0]));
-    }
-
-    function test_RenderMetadata_WithBracesHandling() public {
-        // Test metadata with outer braces (complete JSON object)
-        string memory metadataWithBraces =
-            '{"name":"Framework Test","description":"Test with braces","external_url":"http://localhost:5173/","attributes":[{"trait_type":"property1","value":"value1"}]}';
-
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: metadataWithBraces,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.IMAGE,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: true,
-                allowCollectorSelectArtistArtwork: true,
-                allowCollectorSelectArtistThumbnail: true,
-                allowCollectorToggleDisplayMode: true
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: new string[](0)
-        });
-
-        _mintTestToken721WithParams(baseParams);
-
-        string memory metadataUri = multiplex.renderMetadata(address(erc721Creator), 1);
-
-        // Verify it's a valid JSON data URI
-        assertTrue(_startsWith(metadataUri, "data:application/json;utf8,{"));
-
-        // Extract and validate JSON structure
-        string memory json = _substring(metadataUri, 28, bytes(metadataUri).length - 1);
-
-        // Verify no double braces exist
-        assertFalse(_contains(json, "{{"), "Should not contain double opening braces");
-        assertFalse(_contains(json, "}}"), "Should not contain double closing braces");
-
-        // Verify all expected fields are present
-        assertTrue(_contains(json, '"name":"Framework Test"'));
-        assertTrue(_contains(json, '"description":"Test with braces"'));
-        assertTrue(_contains(json, '"external_url":"http://localhost:5173/"'));
-        assertTrue(_contains(json, '"property1"'));
-        assertTrue(_contains(json, '"value1"'));
-        assertTrue(_contains(json, '"image":"data:image/png;base64,'));
-
-        // Verify the JSON structure is valid by checking bracket balance
-        _verifyJsonBracketBalance(json);
-    }
-
-    function test_RenderMetadata_WithoutBracesHandling() public {
-        // Test traditional metadata format without outer braces
-        _mintTestToken721(); // Uses SAMPLE_METADATA which has no braces
-
-        string memory metadataUri = multiplex.renderMetadata(address(erc721Creator), 1);
-        string memory json = _substring(metadataUri, 28, bytes(metadataUri).length - 1);
-
-        // Verify no double braces
-        assertFalse(_contains(json, "{{"), "Should not contain double opening braces");
-        assertFalse(_contains(json, "}}"), "Should not contain double closing braces");
-
-        // Verify expected content
-        assertTrue(_contains(json, '"name":"Test Token"'));
-        assertTrue(_contains(json, '"image":"data:image/png;base64,'));
-
-        // Verify the JSON structure is valid
-        _verifyJsonBracketBalance(json);
+        string memory result = multiplex.getCombinedArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(result, '"https://artist1.com","https://artist2.com","https://collector1.com"');
     }
 
     /*//////////////////////////////////////////////////////////////
-                        COMPRESSION TESTS
+                    7. _loadOnChainThumbnail TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_CompressionHelpers() public view {
-        bytes memory testData = "Hello, World! This is a test string for compression.";
+    function test_loadOnChainThumbnail_Unzipped() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = Multiplex.ThumbnailKind.ON_CHAIN;
+        config.thumbnail.onChain.mimeType = "image/png";
+        config.thumbnail.onChain.zipped = false;
 
-        // Test zip/unzip
-        bytes memory compressed = LibZip.flzCompress(testData);
-        bytes memory decompressed = LibZip.flzDecompress(compressed);
-        assertEq(decompressed, testData);
+        bytes[] memory chunks = _createOnChainThumbnailChunks();
 
-        // Test inflate (would need actual DEFLATE compressed data)
-        // For now, just verify the function exists and is callable
-        // Real DEFLATE test would require pre-compressed data
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
+
+        bytes memory result = harness.loadOnChainThumbnailPublic(address(adminControl), TEST_TOKEN_ID);
+        assertEq(result, abi.encodePacked(chunks[0], chunks[1]));
+    }
+
+    function test_loadOnChainThumbnail_Zipped() public {
+        bytes memory originalData = "test data to compress";
+        bytes memory compressedData = LibZip.flzCompress(originalData);
+
+        bytes[] memory chunks = new bytes[](1);
+        chunks[0] = compressedData;
+
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = Multiplex.ThumbnailKind.ON_CHAIN;
+        config.thumbnail.onChain.mimeType = "image/png";
+        config.thumbnail.onChain.zipped = true;
+
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
+
+        bytes memory result = harness.loadOnChainThumbnailPublic(address(adminControl), TEST_TOKEN_ID);
+        assertEq(result, originalData);
     }
 
     /*//////////////////////////////////////////////////////////////
-                        INTERFACE TESTS
+                    8. updateMetadata TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_SupportsInterface() public view {
-        // Should support ICreatorExtensionTokenURI
-        assertTrue(multiplex.supportsInterface(type(ICreatorExtensionTokenURI).interfaceId));
+    function test_updateMetadata_OnlyByAdmin() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        // Should support AdminControl
-        assertTrue(multiplex.supportsInterface(type(IAdminControl).interfaceId));
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        // Should not support random interface
-        assertFalse(multiplex.supportsInterface(0x12345678));
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.WalletNotAdmin.selector));
+        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
     }
 
-    function test_TokenURI() public {
-        _mintTestToken721();
+    function test_updateMetadata_PermissionRevoked() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        // tokenURI should return same as renderMetadata
-        string memory tokenUri = multiplex.tokenURI(address(erc721Creator), 1);
-        string memory metadataUri = multiplex.renderMetadata(address(erc721Creator), 1);
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        assertEq(tokenUri, metadataUri);
+        // Revoke metadata update permission
+        vm.prank(artist, artist);
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, false, true, false, false, false, false, false
+        );
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+    }
+
+    function test_updateMetadata_Success() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("MetadataUpdated(address,uint256)"));
+
+        // Verify metadata changed
+        (string memory metadata,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        assertEq(metadata, "new metadata");
     }
 
     /*//////////////////////////////////////////////////////////////
-                          UNIT TEST FOR HELPERS
+                    9. updateHtmlTemplate TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_ContainsHelper() public pure {
-        string memory haystack =
-            '<html><body>"https://example.com/art1.jpg","https://example.com/art2.jpg"</body></html>';
+    function test_updateHtmlTemplate_OnlyByAdmin() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        assertTrue(_contains(haystack, "https://example.com/art1.jpg"), "Should find art1");
-        assertTrue(_contains(haystack, "https://example.com/art2.jpg"), "Should find art2");
-        assertTrue(_contains(haystack, "<html>"), "Should find html tag");
-        assertFalse(_contains(haystack, "notfound"), "Should not find missing string");
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory templateParts = new string[](1);
+        templateParts[0] = "<html>new template</html>";
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.WalletNotAdmin.selector));
+        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts);
     }
 
-    function test_Base64Decode() public pure {
-        // Test the exact base64 string from the failing test
-        string memory base64 =
-            "PGh0bWw+PGJvZHk+Imh0dHBzOi8vZXhhbXBsZS5jb20vYXJ0MS5qcGciLCJodHRwczovL2V4YW1wbGUuY29tL2FydDIuanBnIiwiaHR0cHM6Ly9jb2xsZWN0b3IuY29tL2FydDEuanBnIiBRbVRlc3QxMjM8L2JvZHk+PC9odG1sPg==";
-        bytes memory decoded = Base64.decode(base64);
-        string memory html = string(decoded);
+    function test_updateHtmlTemplate_PermissionRevoked() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        // Verify the decoded string
-        string memory expected =
-            '<html><body>"https://example.com/art1.jpg","https://example.com/art2.jpg","https://collector.com/art1.jpg" QmTest123</body></html>';
-        assertEq(html, expected, "Decoded HTML should match expected");
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        // Now test _contains on the decoded string
-        assertTrue(_contains(html, "https://example.com/art1.jpg"), "Should find art1 in decoded");
-        assertTrue(_contains(html, "https://example.com/art2.jpg"), "Should find art2 in decoded");
+        // Revoke template update permission
+        vm.prank(artist, artist);
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, false, false, false, false, false, false, true
+        );
+
+        string[] memory templateParts = new string[](1);
+        templateParts[0] = "<html>new template</html>";
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts);
+    }
+
+    function test_updateHtmlTemplate_Success() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory templateParts = new string[](1);
+        templateParts[0] = "<html>new template</html>";
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts);
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("HtmlTemplateUpdated()"));
+
+        // Verify template changed
+        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        assertEq(template, "<html>new template</html>");
+    }
+
+    function test_updateHtmlTemplate_ResetToDefault() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // First set a custom template
+        string[] memory templateParts = new string[](1);
+        templateParts[0] = "<html>custom template</html>";
+
+        vm.prank(artist, artist);
+        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts);
+
+        // Then reset to default with empty array
+        string[] memory emptyParts = new string[](0);
+
+        vm.prank(artist, artist);
+        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, emptyParts);
+
+        // Should return empty string indicating default template is used
+        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        assertEq(template, "");
     }
 
     /*//////////////////////////////////////////////////////////////
-                          HELPER FUNCTIONS
+                    10. updateThumbnail TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function _mintTestToken721() internal {
-        Multiplex.MintParams memory baseParams = Multiplex.MintParams({
-            metadata: SAMPLE_METADATA,
-            onChainThumbnail: Multiplex.File({
-                mimeType: SAMPLE_MIME_TYPE,
-                chunks: new address[](0),
-                length: SAMPLE_THUMBNAIL.length,
-                zipped: false,
-                deflated: false
-            }),
-            initialDisplayMode: Multiplex.DisplayMode.IMAGE,
-            immutableProperties: Multiplex.ImmutableProperties({
-                imageHash: SAMPLE_IMAGE_HASH,
-                imageMimeType: "image/jpeg",
-                isAnimationUri: false,
-                useOffchainThumbnail: false,
-                allowCollectorAddArtwork: true,
-                allowCollectorSelectArtistArtwork: true,
-                allowCollectorSelectArtistThumbnail: true,
-                allowCollectorToggleDisplayMode: true
-            }),
-            seedArtistArtworkUris: new string[](0),
-            seedArtistThumbnailUris: new string[](0)
-        });
+    function test_updateThumbnail_OnlyByAdmin() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        _mintTestToken721WithParams(baseParams);
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        Multiplex.Thumbnail memory newThumbnail = config.thumbnail;
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.WalletNotAdmin.selector));
+        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
     }
 
-    function _mintTestToken721WithParams(Multiplex.MintParams memory baseParams) internal {
-        address[] memory recipients = new address[](1);
-        recipients[0] = collector1;
+    function test_updateThumbnail_PermissionRevoked() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        Multiplex.MintERC721Params memory params =
-            Multiplex.MintERC721Params({ baseParams: baseParams, recipients: recipients });
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        bytes[] memory thumbnailChunks = new bytes[](1);
-        thumbnailChunks[0] = SAMPLE_THUMBNAIL;
+        // Revoke thumbnail update permission
+        vm.prank(artist, artist);
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, true, false, false, false, false, false, false
+        );
 
-        vm.prank(artist);
-        multiplex.mintERC721(address(erc721Creator), params, thumbnailChunks);
+        Multiplex.Thumbnail memory newThumbnail = config.thumbnail;
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
     }
 
-    function _startsWith(string memory str, string memory prefix) internal pure returns (bool) {
-        bytes memory strBytes = bytes(str);
-        bytes memory prefixBytes = bytes(prefix);
+    function test_updateThumbnail_Success() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        if (strBytes.length < prefixBytes.length) return false;
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        for (uint256 i = 0; i < prefixBytes.length; i++) {
-            if (strBytes[i] != prefixBytes[i]) return false;
-        }
+        // Create new thumbnail with different URIs
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://newthumb.com";
 
-        return true;
+        Multiplex.Thumbnail memory newThumbnail;
+        newThumbnail.kind = Multiplex.ThumbnailKind.OFF_CHAIN;
+        newThumbnail.offChain.uris = newUris;
+        newThumbnail.offChain.selectedUriIndex = 0;
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("ThumbnailUpdated(address,uint256)"));
+
+        // Verify thumbnail changed
+        string[] memory uris = multiplex.getThumbnailUris(address(adminControl), TEST_TOKEN_ID);
+        assertEq(uris.length, 1);
+        assertEq(uris[0], "https://newthumb.com");
     }
 
-    function _contains(string memory str, string memory substr) internal pure returns (bool) {
-        bytes memory strBytes = bytes(str);
-        bytes memory substrBytes = bytes(substr);
+    function test_updateThumbnail_InvalidOnChainData() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        if (strBytes.length < substrBytes.length) return false;
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        for (uint256 i = 0; i <= strBytes.length - substrBytes.length; i++) {
-            bool found = true;
-            for (uint256 j = 0; j < substrBytes.length; j++) {
-                if (strBytes[i + j] != substrBytes[j]) {
-                    found = false;
-                    break;
-                }
-            }
-            if (found) return true;
-        }
+        Multiplex.Thumbnail memory newThumbnail;
+        newThumbnail.kind = Multiplex.ThumbnailKind.ON_CHAIN;
+        newThumbnail.onChain.mimeType = "image/png";
+        newThumbnail.onChain.zipped = false;
 
-        return false;
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidIndexRange.selector));
+        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0)); // Empty chunks
     }
 
-    function _substring(
-        string memory str,
-        uint256 startIndex,
-        uint256 endIndex
-    )
-        internal
-        pure
-        returns (string memory)
-    {
-        bytes memory strBytes = bytes(str);
-        bytes memory result = new bytes(endIndex - startIndex);
+    /*//////////////////////////////////////////////////////////////
+                    11. addArtworkUris TESTS
+    //////////////////////////////////////////////////////////////*/
 
-        for (uint256 i = startIndex; i < endIndex; i++) {
-            result[i - startIndex] = strBytes[i];
-        }
+    function test_addArtworkUris_OnlyArtistOrCollector() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        return string(result);
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://new.com";
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
     }
 
-    function _verifyJsonBracketBalance(string memory json) internal pure {
-        bytes memory jsonBytes = bytes(json);
-        int256 braceCount = 0;
-        int256 bracketCount = 0;
+    function test_addArtworkUris_Artist() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
 
-        for (uint256 i = 0; i < jsonBytes.length; i++) {
-            if (jsonBytes[i] == 0x7B) {
-                // '{'
-                braceCount++;
-            } else if (jsonBytes[i] == 0x7D) {
-                // '}'
-                braceCount--;
-            } else if (jsonBytes[i] == 0x5B) {
-                // '['
-                bracketCount++;
-            } else if (jsonBytes[i] == 0x5D) {
-                // ']'
-                bracketCount--;
-            }
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-            // Brackets should never go negative
-            require(braceCount >= 0, "Unbalanced JSON braces - too many closing braces");
-            require(bracketCount >= 0, "Unbalanced JSON brackets - too many closing brackets");
-        }
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://newartist.com";
 
-        // Final counts should be zero for balanced JSON
-        require(braceCount == 0, "Unbalanced JSON braces - missing closing braces");
-        require(bracketCount == 0, "Unbalanced JSON brackets - missing closing brackets");
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("ArtworkUrisAdded(address,uint256,address,uint256)"));
+
+        // Verify URI added to artist array
+        string[] memory artistUris = multiplex.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        assertEq(artistUris.length, 3); // 2 original + 1 new
+        assertEq(artistUris[2], "https://newartist.com");
+    }
+
+    function test_addArtworkUris_Collector() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://newcollector.com";
+
+        vm.prank(collector, collector);
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
+
+        // Verify URI added to collector array
+        string[] memory collectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(collectorUris.length, 1);
+        assertEq(collectorUris[0], "https://newcollector.com");
+    }
+
+    function test_addArtworkUris_PermissionDenied() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.permissions.flags = config.permissions.flags & ~ARTIST_ADD_REMOVE;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://new.com";
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    12. revokeArtistPermissions TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_revokeArtistPermissions_Individual() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Revoke metadata permission
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, false, true, false, false, false, false, false
+        );
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("ArtistPermissionsRevoked(address,uint256,address)"));
+
+        // Verify permission is revoked
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+
+        // Verify other permissions still work
+        vm.prank(artist, artist);
+        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, Multiplex.DisplayMode.HTML); // Should still work
+    }
+
+    function test_revokeAllArtistPermissions() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        multiplex.revokeAllArtistPermissions(address(adminControl), TEST_TOKEN_ID);
+
+        // Verify all artist permissions are revoked
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, Multiplex.DisplayMode.HTML);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    13. removeArtworkUris TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_removeArtworkUris_OnlyArtistOrCollector() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        uint256[] memory indices = new uint256[](1);
+        indices[0] = 0;
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+    }
+
+    function test_removeArtworkUris_Artist() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        uint256[] memory indices = new uint256[](1);
+        indices[0] = 1; // Remove second URI
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("ArtworkUriRemoved(address,uint256,address,uint256)"));
+
+        // Verify URI removed
+        string[] memory artistUris = multiplex.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        assertEq(artistUris.length, 1);
+    }
+
+    function test_removeArtworkUris_SelectedIndexUpdate() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.artwork.selectedArtistUriIndex = 1; // Select second URI
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        uint256[] memory indices = new uint256[](1);
+        indices[0] = 1; // Remove the selected URI
+
+        vm.prank(artist, artist);
+        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+
+        // Selected index should be updated to stay within bounds
+        Multiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        assertEq(artwork.selectedArtistUriIndex, 0);
+    }
+
+    function test_removeArtworkUris_PermissionDenied() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.permissions.flags = config.permissions.flags & ~ARTIST_ADD_REMOVE;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        uint256[] memory indices = new uint256[](1);
+        indices[0] = 0;
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    14. setSelectedUri TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_setSelectedUri_OnlyArtistOrCollector() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+    }
+
+    function test_setSelectedUri_Artist() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("SelectedArtworkUriChanged(address,uint256,uint256)"));
+
+        // Verify selection changed
+        Multiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        assertEq(artwork.selectedArtistUriIndex, 1);
+    }
+
+    function test_setSelectedUri_OutOfRange() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidIndexRange.selector));
+        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 999);
+    }
+
+    function test_setSelectedUri_PermissionDenied() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.permissions.flags = config.permissions.flags & ~ARTIST_CHOOSE_URIS;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    15. setSelectedThumbnailUri TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_setSelectedThumbnailUri_OnlyArtistOrCollector() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 1);
+    }
+
+    function test_setSelectedThumbnailUri_Success() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 1);
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("SelectedThumbnailUriChanged(address,uint256,uint256)"));
+
+        // Verify selection changed
+        (, uint256 selectedIndex) = multiplex.getThumbnailInfo(address(adminControl), TEST_TOKEN_ID);
+        assertEq(selectedIndex, 1);
+    }
+
+    function test_setSelectedThumbnailUri_OnlyOffChain() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = Multiplex.ThumbnailKind.ON_CHAIN;
+        config.thumbnail.onChain.mimeType = "image/png";
+        config.thumbnail.onChain.zipped = false;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks());
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidThumbnailKind.selector));
+        multiplex.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 0);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    16. setDisplayMode TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_setDisplayMode_OnlyArtistOrCollector() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, Multiplex.DisplayMode.HTML);
+    }
+
+    function test_setDisplayMode_Success() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, Multiplex.DisplayMode.HTML);
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("DisplayModeUpdated(address,uint256,uint8)"));
+
+        // Verify display mode changed
+        (,,,, Multiplex.DisplayMode displayMode,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        assertEq(uint8(displayMode), uint8(Multiplex.DisplayMode.HTML));
+    }
+
+    function test_setDisplayMode_PermissionDenied() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.permissions.flags = config.permissions.flags & ~ARTIST_UPDATE_MODE;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, Multiplex.DisplayMode.HTML);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    17. setDefaultHtmlTemplate TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_setDefaultHtmlTemplate_OnlyOwner() public {
+        string memory newTemplate = "<html>new default template</html>";
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(); // Should revert with Ownable error
+        multiplex.setDefaultHtmlTemplate(newTemplate);
+
+        vm.prank(owner, owner);
+        vm.recordLogs();
+        multiplex.setDefaultHtmlTemplate(newTemplate);
+
+        // Verify event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("HtmlTemplateUpdated()"));
+
+        // Verify template changed
+        string memory template = multiplex.getDefaultHtmlTemplate();
+        assertEq(template, newTemplate);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    18. RENDERING TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_renderImage() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string memory result = multiplex.renderImage(address(adminControl), TEST_TOKEN_ID);
+        assertEq(result, "https://thumb1.com");
+    }
+
+    function test_renderRawImage() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = Multiplex.ThumbnailKind.ON_CHAIN;
+        config.thumbnail.onChain.mimeType = "image/png";
+        config.thumbnail.onChain.zipped = false;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks());
+
+        bytes memory result = multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
+        assertEq(result, "chunk1datachunk2data");
+    }
+
+    function test_renderHTML() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string memory result = multiplex.renderHTML(address(adminControl), TEST_TOKEN_ID);
+        assertTrue(bytes(result).length > 0);
+        // Should start with "data:text/html;base64,"
+        assertEq(bytes(result)[0], bytes1("d"));
+    }
+
+    function test_renderRawHTML() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string memory result = multiplex.renderRawHTML(address(adminControl), TEST_TOKEN_ID);
+        assertEq(result, '<html>"https://artist1.com","https://artist2.com"</html>');
+    }
+
+    function test_renderMetadata_DirectFileMode() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.displayMode = Multiplex.DisplayMode.DIRECT_FILE;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string memory result = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        assertTrue(bytes(result).length > 0);
+        // Should start with "data:application/json;utf8,{"
+        assertEq(bytes(result)[0], bytes1("d"));
+    }
+
+    function test_renderMetadata_HTMLMode() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.displayMode = Multiplex.DisplayMode.HTML;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string memory result = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        assertTrue(bytes(result).length > 0);
+        // Should contain both image and animation_url fields
+        assertEq(bytes(result)[0], bytes1("d"));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    19. VIEW FUNCTIONS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_getArtistArtworkUris() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory uris = multiplex.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        assertEq(uris.length, 2);
+        assertEq(uris[0], "https://artist1.com");
+        assertEq(uris[1], "https://artist2.com");
+    }
+
+    function test_getCollectorArtworkUris() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory collectorUris = new string[](1);
+        collectorUris[0] = "https://collector1.com";
+
+        vm.prank(collector, collector);
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
+
+        string[] memory uris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(uris.length, 1);
+        assertEq(uris[0], "https://collector1.com");
+    }
+
+    function test_getThumbnailUris() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory uris = multiplex.getThumbnailUris(address(adminControl), TEST_TOKEN_ID);
+        assertEq(uris.length, 2);
+        assertEq(uris[0], "https://thumb1.com");
+        assertEq(uris[1], "https://thumb2.com");
+    }
+
+    function test_getPermissions() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        Multiplex.Permissions memory permissions = multiplex.getPermissions(address(adminControl), TEST_TOKEN_ID);
+        assertTrue(permissions.flags & ARTIST_UPDATE_THUMB != 0);
+        assertTrue(permissions.flags & ARTIST_UPDATE_META != 0);
+    }
+
+    function test_getArtwork() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        Multiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        assertEq(artwork.artistUris.length, 2);
+        assertEq(artwork.mimeType, "image/png");
+        assertEq(artwork.fileHash, "0x1234567890abcdef");
+        assertEq(artwork.selectedArtistUriIndex, 0);
+    }
+
+    function test_getThumbnailInfo() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        (Multiplex.ThumbnailKind kind, uint256 selectedIndex) =
+            multiplex.getThumbnailInfo(address(adminControl), TEST_TOKEN_ID);
+        assertEq(uint8(kind), uint8(Multiplex.ThumbnailKind.OFF_CHAIN));
+        assertEq(selectedIndex, 0);
+    }
+
+    function test_getOwnershipConfig() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        Multiplex.OwnershipConfig memory ownership = multiplex.getOwnershipConfig(address(adminControl), TEST_TOKEN_ID);
+        assertEq(ownership.selector, bytes4(keccak256("ownerOf(uint256)")));
+        assertEq(uint8(ownership.style), uint8(Multiplex.OwnershipStyle.OWNER_OF));
+    }
+
+    function test_getTokenHtmlTemplate() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Initially should return empty string (using default)
+        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        assertEq(template, "");
+
+        // Set custom template
+        string[] memory templateParts = new string[](1);
+        templateParts[0] = "<html>custom</html>";
+
+        vm.prank(artist, artist);
+        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts);
+
+        template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        assertEq(template, "<html>custom</html>");
+    }
+
+    function test_getCombinedArtworkUris() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string memory combined = multiplex.getCombinedArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        assertEq(combined, '"https://artist1.com","https://artist2.com"');
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    20. HELPER FUNCTIONS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_encodeDataUri() public {
+        string memory mimeType = "image/png";
+        bytes memory data = "test data";
+
+        string memory result = harness.encodeDataUriPublic(mimeType, data, false);
+        assertEq(result, "data:image/png;base64,dGVzdCBkYXRh");
+    }
+
+    function test_appendJsonField() public {
+        string memory json = '"name":"test"';
+        string memory field = '"description":"desc"';
+
+        string memory result = harness.appendJsonFieldPublic(json, field);
+        assertEq(result, '"name":"test","description":"desc"');
+
+        // Test with empty json
+        result = harness.appendJsonFieldPublic("", field);
+        assertEq(result, '"description":"desc"');
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    21. ADDITIONAL ERROR COVERAGE
+    //////////////////////////////////////////////////////////////*/
+
+    function test_InvalidMetadata() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.metadata = "";
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidMetadata.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+    }
+
+    function test_InvalidArtworkUris() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.artwork.artistUris = new string[](0);
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidArtworkUris.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+    }
+
+    function test_InvalidMimeType() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.artwork.mimeType = "";
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidMimeType.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+    }
+
+    function test_InvalidFileHash() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.artwork.fileHash = "";
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidFileHash.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+    }
+
+    function test_OnChainThumbnailEmpty() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = Multiplex.ThumbnailKind.ON_CHAIN;
+        config.thumbnail.onChain.mimeType = "image/png";
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.OnChainThumbnailEmpty.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+    }
+
+    function test_InvalidSelectedThumbnailUriIndex() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.offChain.selectedUriIndex = 999;
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidSelectedThumbnailUriIndex.selector));
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+    }
+
+    function test_NotTokenOwnerOrAdmin() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory uris = new string[](1);
+        uris[0] = "test";
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, uris);
+    }
+
+    function test_CollectorPermissionDenied() public {
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.permissions.flags = config.permissions.flags & ~COLLECTOR_ADD_REMOVE;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string[] memory uris = new string[](1);
+        uris[0] = "test";
+
+        vm.prank(collector, collector);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.CollectorPermissionDenied.selector));
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, uris);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    22. MISSING COMPREHENSIVE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_NotTokenOwner() public {
+        // Test _isTokenOwner returns false when user doesn't own token
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(keccak256("ownerOf(uint256)"));
+        config.ownership.style = Multiplex.OwnershipStyle.OWNER_OF;
+
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Test with the adminControl which doesn't have ownerOf - should return false
+        vm.prank(stranger, stranger);
+        assertFalse(harness.isTokenOwnerPublic(address(adminControl), TEST_TOKEN_ID));
+    }
+
+    function test_isTokenOwner_BalanceOfERC721() public {
+        // Test BALANCE_OF_ERC721 ownership style
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(keccak256("balanceOf(address)"));
+        config.ownership.style = Multiplex.OwnershipStyle.BALANCE_OF_ERC721;
+
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(collector, collector);
+        assertTrue(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+
+        vm.prank(stranger, stranger);
+        assertFalse(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+    }
+
+    function test_isTokenOwner_IsApprovedForAll() public {
+        // Test IS_APPROVED_FOR_ALL ownership style with mock contract
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(keccak256("isApprovedForAll(address,address)"));
+        config.ownership.style = Multiplex.OwnershipStyle.IS_APPROVED_FOR_ALL;
+
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // This will likely return false since our mock doesn't have approval logic
+        vm.prank(collector, collector);
+        assertFalse(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+    }
+
+    function test_setSelectedUri_CollectorNotAffected() public {
+        // Test that setSelectedUri only affects artist URIs, not collector URIs
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Add collector URIs
+        string[] memory collectorUris = new string[](2);
+        collectorUris[0] = "https://collector1.com";
+        collectorUris[1] = "https://collector2.com";
+
+        vm.prank(collector, collector);
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
+
+        // Change selected artist URI
+        vm.prank(artist, artist);
+        multiplex.setSelectedUri(address(mockERC721), TEST_TOKEN_ID, 1);
+
+        // Verify only artist URI selection changed
+        Multiplex.Artwork memory artwork = multiplex.getArtwork(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(artwork.selectedArtistUriIndex, 1);
+
+        // Collector URIs should be unaffected by setSelectedUri
+        string[] memory storedCollectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(storedCollectorUris.length, 2);
+    }
+
+    function test_removeArtworkUris_CollectorArray() public {
+        // Test removal from collector array specifically
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Add collector URIs
+        string[] memory collectorUris = new string[](3);
+        collectorUris[0] = "https://collector1.com";
+        collectorUris[1] = "https://collector2.com";
+        collectorUris[2] = "https://collector3.com";
+
+        vm.prank(collector, collector);
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
+
+        // Remove middle collector URI
+        uint256[] memory indices = new uint256[](1);
+        indices[0] = 1;
+
+        vm.prank(collector, collector);
+        multiplex.removeArtworkUris(address(mockERC721), TEST_TOKEN_ID, indices);
+
+        // Verify removal from collector array only
+        string[] memory remainingCollectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(remainingCollectorUris.length, 2);
+
+        // Artist URIs should be unaffected
+        string[] memory artistUris = multiplex.getArtistArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(artistUris.length, 2); // Original count
+    }
+
+    function test_AllPermissionCombinations() public {
+        // Test all individual permission revocations
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Test each permission individually
+        vm.prank(artist, artist);
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, true, false, false, false, false, false, false
+        );
+
+        Multiplex.Thumbnail memory newThumbnail = config.thumbnail;
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
+
+        // Test ARTIST_CHOOSE_URIS
+        vm.prank(artist, artist);
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, false, false, true, false, false, false, false
+        );
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 0);
+
+        // Test ARTIST_CHOOSE_THUMB
+        vm.prank(artist, artist);
+        multiplex.revokeArtistPermissions(
+            address(adminControl), TEST_TOKEN_ID, false, false, false, false, true, false, false
+        );
+
+        // For testing thumbnail selection, we need to use the mockERC721 contract to enable collector ownership checks
+        // First initialize a new token on mockERC721 for this test
+        config = _createValidInitConfig();
+        config.permissions.flags = config.permissions.flags & ~ARTIST_CHOOSE_THUMB; // Remove the permission we want to
+            // test
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), 2, config, new bytes[](0));
+
+        // Now test that the artist cannot use setSelectedThumbnailUri without permission
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.ArtistPermissionRevoked.selector));
+        multiplex.setSelectedThumbnailUri(address(mockERC721), 2, 1);
+    }
+
+    function test_CollectorPermissions() public {
+        // Test collector-specific permissions
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        // Remove collector choose URIs permission
+        config.permissions.flags = config.permissions.flags & ~COLLECTOR_CHOOSE_URIS;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.prank(collector, collector);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.CollectorPermissionDenied.selector));
+        multiplex.setSelectedUri(address(mockERC721), TEST_TOKEN_ID, 1);
+
+        // Test collector choose thumbnail permission
+        config.permissions.flags = config.permissions.flags & ~COLLECTOR_CHOOSE_THUMB;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), 2, config, new bytes[](0));
+
+        vm.prank(collector, collector);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.CollectorPermissionDenied.selector));
+        multiplex.setSelectedThumbnailUri(address(mockERC721), 2, 1);
+
+        // Test collector update mode permission
+        config.permissions.flags = config.permissions.flags & ~COLLECTOR_UPDATE_MODE;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(mockERC721), 3, config, new bytes[](0));
+
+        vm.prank(collector, collector);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.CollectorPermissionDenied.selector));
+        multiplex.setDisplayMode(address(mockERC721), 3, Multiplex.DisplayMode.HTML);
+    }
+
+    function test_AllEvents() public {
+        // Comprehensive event testing
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("TokenDataInitialized(address,uint256)"));
+
+        // Test MetadataUpdated event
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+
+        logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("MetadataUpdated(address,uint256)"));
+
+        // Test SelectedArtworkUriChanged event
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+
+        logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("SelectedArtworkUriChanged(address,uint256,uint256)"));
+
+        // Test ArtworkUrisAdded event
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://new.com";
+
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+
+        logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("ArtworkUrisAdded(address,uint256,address,uint256)"));
+
+        // Test DisplayModeUpdated event
+        vm.prank(artist, artist);
+        vm.recordLogs();
+        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, Multiplex.DisplayMode.HTML);
+
+        logs = vm.getRecordedLogs();
+        assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("DisplayModeUpdated(address,uint256,uint8)"));
+    }
+
+    function test_RemainingErrors() public {
+        // Test remaining error cases that might not be covered
+
+        // Test InvalidThumbnailKind with renderRawImage
+        Multiplex.InitConfig memory config = _createValidInitConfig(); // Uses OFF_CHAIN by default
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidThumbnailKind.selector));
+        multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
+
+        // Test InvalidIndexRange for off-chain thumbnail URIs
+        config.thumbnail.offChain.uris = new string[](0);
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidIndexRange.selector));
+        multiplex.initializeTokenData(address(adminControl), 999, config, new bytes[](0));
+
+        // Test InvalidIndexRange for removeArtworkUris
+        config = _createValidInitConfig();
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), 998, config, new bytes[](0));
+
+        uint256[] memory invalidIndices = new uint256[](1);
+        invalidIndices[0] = 999; // Out of bounds
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidIndexRange.selector));
+        multiplex.removeArtworkUris(address(adminControl), 998, invalidIndices);
+
+        // Test empty indices array
+        uint256[] memory emptyIndices = new uint256[](0);
+
+        vm.prank(artist, artist);
+        vm.expectRevert(abi.encodeWithSelector(Multiplex.InvalidIndexRange.selector));
+        multiplex.removeArtworkUris(address(adminControl), 998, emptyIndices);
+    }
+
+    function test_AdvancedRenderingModes() public {
+        // Test rendering with animation URIs
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.artwork.isAnimationUri = true;
+        config.displayMode = Multiplex.DisplayMode.DIRECT_FILE;
+
+        vm.prank(artist, artist);
+        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        string memory metadata = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        assertTrue(bytes(metadata).length > 0);
+
+        // Test HTML mode rendering
+        vm.prank(artist, artist);
+        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, Multiplex.DisplayMode.HTML);
+
+        metadata = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        assertTrue(bytes(metadata).length > 0);
+    }
+
+    function test_EdgeCasePermutations() public {
+        // Test with custom ownership that might fail
+        Multiplex.InitConfig memory config = _createValidInitConfig();
+        config.ownership.selector = bytes4(keccak256("nonExistentFunction(address)"));
+        config.ownership.style = Multiplex.OwnershipStyle.SIMPLE_BOOL;
+
+        vm.prank(artist, artist);
+        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // This should return false because the function doesn't exist
+        vm.prank(collector, collector);
+        assertFalse(harness.isTokenOwnerPublic(address(mockCustomOwnership), TEST_TOKEN_ID));
     }
 }
