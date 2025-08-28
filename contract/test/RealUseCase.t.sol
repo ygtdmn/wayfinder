@@ -6,6 +6,7 @@ import { IERC1155CreatorCore } from "@manifoldxyz/creator-core-solidity/contract
 import { console2 } from "forge-std/src/console2.sol";
 import { MultiplexManifoldExtension } from "src/MultiplexManifoldExtension.sol";
 import { Multiplex } from "src/Multiplex.sol";
+import { IMultiplex } from "src/interfaces/IMultiplex.sol";
 import { IERC1155MetadataURI } from "@openzeppelin/contracts/interfaces/IERC1155MetadataURI.sol";
 
 contract RealUseCaseTest is Test {
@@ -26,7 +27,7 @@ contract RealUseCaseTest is Test {
         string memory metadata =
             unicode"\"name\": \"Off-Chain Art\",\"description\": \"An artwork that blends six historic paintings which were altered without the artists' intent: The Night Watch by Rembrandt, The Last Supper by Leonardo da Vinci, The Vision of Saint John by El Greco, The Last Judgement by Michelangelo, Las Meninas by Diego Velázquez, and The Death of Actaeon by Titian.\",\"attributes\": [{\"trait_type\": \"Artwork 1\", \"value\": \"The Night Watch by Rembrandt\"}, {\"trait_type\": \"Artwork 2\", \"value\": \"The Last Supper by Leonardo da Vinci\"}, {\"trait_type\": \"Artwork 3\", \"value\": \"The Vision of Saint John by El Greco\"}, {\"trait_type\": \"Artwork 4\", \"value\": \"The Last Judgement by Michelangelo\"}, {\"trait_type\": \"Artwork 5\", \"value\": \"Las Meninas by Diego Velázquez\"}, {\"trait_type\": \"Artwork 6\", \"value\": \"The Death of Actaeon by Titian\"}]";
 
-        Multiplex multiplex = new Multiplex(htmlTemplate);
+        Multiplex multiplex = new Multiplex(htmlTemplate, false);
         MultiplexManifoldExtension extension = new MultiplexManifoldExtension(address(multiplex));
 
         IERC1155CreatorCore ephemera = IERC1155CreatorCore(address(0xCb337152b6181683010D07e3f00e7508cd348BC7));
@@ -36,7 +37,7 @@ contract RealUseCaseTest is Test {
         uint256[] memory quantities = new uint256[](1);
         quantities[0] = 11;
 
-        Multiplex.Artwork memory artwork = Multiplex.Artwork({
+        IMultiplex.Artwork memory artwork = IMultiplex.Artwork({
             artistUris: new string[](5),
             collectorUris: new string[](0),
             mimeType: "image/png",
@@ -52,10 +53,10 @@ contract RealUseCaseTest is Test {
         artwork.artistUris[4] = "https://ipfs.io/ipfs/5";
         artwork.selectedArtistUriIndex = 0;
 
-        Multiplex.Thumbnail memory thumbnail = Multiplex.Thumbnail({
-            kind: Multiplex.ThumbnailKind.OFF_CHAIN,
-            onChain: Multiplex.OnChainThumbnail({ mimeType: "", chunks: new address[](0), zipped: false }),
-            offChain: Multiplex.OffChainThumbnail({ uris: new string[](5), selectedUriIndex: 0 })
+        IMultiplex.Thumbnail memory thumbnail = IMultiplex.Thumbnail({
+            kind: IMultiplex.ThumbnailKind.OFF_CHAIN,
+            onChain: IMultiplex.OnChainThumbnail({ mimeType: "", chunks: new address[](0), zipped: false }),
+            offChain: IMultiplex.OffChainThumbnail({ uris: new string[](5), selectedUriIndex: 0 })
         });
 
         thumbnail.offChain.uris[0] = "https://ipfs.io/ipfs/thumb1";
@@ -65,13 +66,13 @@ contract RealUseCaseTest is Test {
         thumbnail.offChain.uris[4] = "https://ipfs.io/ipfs/thumb5";
         thumbnail.offChain.selectedUriIndex = 2;
 
-        Multiplex.DisplayMode displayMode = Multiplex.DisplayMode.HTML;
-        Multiplex.Permissions memory permissions = Multiplex.Permissions({ flags: uint16(0xFFFF) });
+        IMultiplex.DisplayMode displayMode = IMultiplex.DisplayMode.HTML;
+        IMultiplex.Permissions memory permissions = IMultiplex.Permissions({ flags: uint16(0xFFFF) });
 
-        Multiplex.OwnershipConfig memory ownership =
-            Multiplex.OwnershipConfig({ selector: 0x6352211e, style: Multiplex.OwnershipStyle.OWNER_OF });
+        IMultiplex.OwnershipConfig memory ownership =
+            IMultiplex.OwnershipConfig({ selector: 0x6352211e, style: IMultiplex.OwnershipStyle.OWNER_OF });
 
-        Multiplex.InitConfig memory config = Multiplex.InitConfig({
+        IMultiplex.InitConfig memory config = IMultiplex.InitConfig({
             metadata: metadata,
             artwork: artwork,
             thumbnail: thumbnail,

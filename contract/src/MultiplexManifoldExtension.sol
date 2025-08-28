@@ -2,7 +2,7 @@
 pragma solidity >=0.8.30 <0.9.0;
 
 import { AdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/AdminControl.sol";
-import { Multiplex } from "./Multiplex.sol";
+import { IMultiplex } from "./interfaces/IMultiplex.sol";
 import { Lifebuoy } from "solady/utils/Lifebuoy.sol";
 import { IERC721CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC721CreatorCore.sol";
 import { IERC1155CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
@@ -22,7 +22,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The Multiplex contract that handles token data and rendering
-    Multiplex public multiplex;
+    IMultiplex public multiplex;
 
     /*//////////////////////////////////////////////////////////////
                             CUSTOM ERRORS
@@ -51,19 +51,28 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     /// @notice Initialize the contract with a Multiplex instance
     /// @param _multiplex The Multiplex contract address
     constructor(address _multiplex) {
-        multiplex = Multiplex(_multiplex);
+        multiplex = IMultiplex(_multiplex);
     }
 
     /*//////////////////////////////////////////////////////////////
                             ACCESS HELPERS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Check if the account is an admin of the contract
+    /// @param contractAddress The contract to check admin status for
+    /// @param account The account to check admin status for
+    /// @return True if account is admin, false otherwise
+    /// @dev This is a utility function to use try/catch to check if the contract implements AdminControl
+    function tryIsAdmin(address contractAddress, address account) external view returns (bool) {
+        return AdminControl(contractAddress).isAdmin(account);
+    }
+
     /// @notice Check if the caller is an admin of the contract
     /// @param contractAddress The contract to check admin status for
     /// @return True if caller is admin, false otherwise
     function _isContractAdmin(address contractAddress) internal view returns (bool) {
         // Try to check if it's a Manifold contract with AdminControl
-        try AdminControl(contractAddress).isAdmin(msg.sender) returns (bool isAdmin) {
+        try this.tryIsAdmin(contractAddress, msg.sender) returns (bool isAdmin) {
             return isAdmin;
         } catch {
             // If not, return false
@@ -85,7 +94,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     /// @notice Update the Multiplex contract address (admin only)
     /// @param _multiplex The new Multiplex contract address
     function setMultiplex(address _multiplex) external adminRequired {
-        multiplex = Multiplex(_multiplex);
+        multiplex = IMultiplex(_multiplex);
         emit MultiplexUpdated(_multiplex);
     }
 
@@ -104,7 +113,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         address contractAddress,
         address[] calldata recipients,
         uint256[] calldata quantities,
-        Multiplex.InitConfig memory config,
+        IMultiplex.InitConfig memory config,
         bytes[] calldata thumbnailChunks
     )
         external
@@ -124,9 +133,9 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         uint256[] memory tokenIds = IERC1155CreatorCore(contractAddress).mintExtensionNew(recipients, quantities, uris);
 
         // Set ownership config with ERC1155 standard
-        config.ownership = Multiplex.OwnershipConfig({
+        config.ownership = IMultiplex.OwnershipConfig({
             selector: OwnershipSelectors.BALANCE_OF_ERC1155,
-            style: Multiplex.OwnershipStyle.BALANCE_OF_ERC1155
+            style: IMultiplex.OwnershipStyle.BALANCE_OF_ERC1155
         });
 
         // Initialize token data in Multiplex and emit events
@@ -144,7 +153,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     function mintERC721(
         address contractAddress,
         address recipient,
-        Multiplex.InitConfig memory config,
+        IMultiplex.InitConfig memory config,
         bytes[] calldata thumbnailChunks
     )
         external
@@ -158,9 +167,9 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         uint256 tokenId = IERC721CreatorCore(contractAddress).mintExtension(recipient);
 
         // Set ownership config with ERC721 standard
-        config.ownership = Multiplex.OwnershipConfig({
+        config.ownership = IMultiplex.OwnershipConfig({
             selector: OwnershipSelectors.OWNER_OF,
-            style: Multiplex.OwnershipStyle.OWNER_OF
+            style: IMultiplex.OwnershipStyle.OWNER_OF
         });
 
         // Initialize token data in Multiplex and emit events

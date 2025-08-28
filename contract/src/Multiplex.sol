@@ -8,59 +8,19 @@ import { LibString } from "solady/utils/LibString.sol";
 import { LibZip } from "solady/utils/LibZip.sol";
 import { Ownable } from "solady/auth/Ownable.sol";
 import { IAdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/IAdminControl.sol";
+import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import { IMultiplex } from "./interfaces/IMultiplex.sol";
 
 /**
  * @title Multiplex
  * @author Yigit Duman (@yigitduman)
  * @notice A universal URI distribution and management system for any contract
  */
-contract Multiplex is Ownable, Lifebuoy {
-    /*//////////////////////////////////////////////////////////////
-                                ENUMS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Display modes for token rendering
-    enum DisplayMode {
-        DIRECT_FILE, // Shows selected artwork as static file
-        HTML // Shows interactive HTML experience with all artworks
-
-    }
-
-    /// @notice Thumbnail storage type discriminator
-    enum ThumbnailKind {
-        ON_CHAIN, // Stored on-chain using SSTORE2
-        OFF_CHAIN // Referenced by URI array
-
-    }
-
-    /// @notice Ownership check style
-    enum OwnershipStyle {
-        OWNER_OF, // Returns address, check if == msg.sender (e.g., ownerOf(tokenId))
-        BALANCE_OF_ERC721, // Returns uint256, check if > 0 (e.g., balanceOf(address))
-        BALANCE_OF_ERC1155, // Returns uint256, check if > 0 (e.g., balanceOf(address, tokenId))
-        IS_APPROVED_FOR_ALL, // Returns bool, check if == true (e.g., isApprovedForAll(address, address))
-        SIMPLE_BOOL // Returns bool, check if == true (e.g., isOwner(address))
-
-    }
-
+contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /*//////////////////////////////////////////////////////////////
                             DATA STRUCTURES  
     //////////////////////////////////////////////////////////////*/
-
-    /// @notice Artwork configuration and URIs
-    struct Artwork {
-        string[] artistUris; // Artist-curated artwork URIs
-        string[] collectorUris; // Collector-added artwork URIs (HTML mode only)
-        string mimeType; // MIME type of the artwork
-        string fileHash; // Hash of the artwork for verification
-        bool isAnimationUri; // If true, artwork goes in animation_url
-        uint256 selectedArtistUriIndex; // 0-based index for selected artist URI
-    }
-
-    /// @notice Permission flags for artist and collector actions (bit-packed)
-    struct Permissions {
-        uint16 flags; // Bit-packed permissions
-    }
 
     // Permission bit positions
     uint16 constant ARTIST_UPDATE_THUMB = 2 ** 0;
@@ -75,53 +35,8 @@ contract Multiplex is Ownable, Lifebuoy {
     uint16 constant COLLECTOR_CHOOSE_THUMB = 2 ** 9;
     uint16 constant COLLECTOR_UPDATE_MODE = 2 ** 10;
 
-    /// @notice On-chain thumbnail stored using SSTORE2
-    struct OnChainThumbnail {
-        string mimeType; // MIME type (e.g., "image/webp")
-        address[] chunks; // SSTORE2 storage addresses
-        bool zipped; // True if compressed with FastLZ
-    }
-
-    /// @notice Off-chain thumbnail referenced by URIs
-    struct OffChainThumbnail {
-        string[] uris; // Available thumbnail URIs
-        uint256 selectedUriIndex; // 0-based index
-    }
-
-    /// @notice Unified thumbnail structure
-    struct Thumbnail {
-        ThumbnailKind kind; // Whether thumbnail is on-chain or off-chain
-        OnChainThumbnail onChain; // On-chain thumbnail data
-        OffChainThumbnail offChain; // Off-chain thumbnail data
-    }
-
-    /// @notice Ownership check configuration
-    struct OwnershipConfig {
-        bytes4 selector; // Function selector (e.g., OwnershipSelectors.OWNER_OF, OwnershipSelectors.BALANCE_OF, or
-            // custom)
-        OwnershipStyle style; // How to interpret the result
-    }
-
-    /// @notice Complete token data
-    struct Token {
-        string metadata; // JSON metadata (that contains name, description, traits)
-        Thumbnail thumbnail; // Unified thumbnail data
-        Artwork artwork; // Artwork configuration and URIs
-        Permissions permissions; // Permission flags for artist and collector actions
-        DisplayMode displayMode; // Current display mode
-        OwnershipConfig ownership; // How to check token ownership
-        address[] htmlTemplatePointers; // Custom HTML template chunks for this token (empty = use default)
-    }
-
-    /// @notice Configuration for initializing token data
-    struct InitConfig {
-        string metadata;
-        Artwork artwork;
-        Thumbnail thumbnail;
-        DisplayMode displayMode;
-        Permissions permissions;
-        OwnershipConfig ownership;
-    }
+    // Permission bit domains
+    uint16 constant ARTIST_BITS_COUNT = 7; // Artist permissions occupy bits 0-6
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -130,43 +45,8 @@ contract Multiplex is Ownable, Lifebuoy {
     /// @notice Mapping: creator contract => tokenId => token data
     mapping(address => mapping(uint256 => Token)) public tokenData;
 
-    /// @notice HTML template stored using SSTORE2 for gas efficiency
-    address private defaultHtmlTemplatePointer;
-
-    /*//////////////////////////////////////////////////////////////
-                            CUSTOM ERRORS
-    //////////////////////////////////////////////////////////////*/
-
-    error WalletNotAdmin();
-    error NotTokenOwner();
-    error NotTokenOwnerOrAdmin();
-    error InvalidOwnershipFunction();
-    error InvalidIndexRange();
-    error ArtistPermissionRevoked();
-    error CollectorPermissionDenied();
-    error InvalidThumbnailKind();
-    error OnChainThumbnailEmpty();
-    error InvalidMetadata();
-    error InvalidArtworkUris();
-    error InvalidMimeType();
-    error InvalidFileHash();
-    error InvalidSelectedArtistUriIndex();
-    error InvalidSelectedThumbnailUriIndex();
-
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event TokenDataInitialized(address indexed creator, uint256 indexed tokenId);
-    event MetadataUpdated(address indexed creator, uint256 indexed tokenId);
-    event ThumbnailUpdated(address indexed creator, uint256 indexed tokenId);
-    event DisplayModeUpdated(address indexed creator, uint256 indexed tokenId, DisplayMode displayMode);
-    event SelectedArtworkUriChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
-    event SelectedThumbnailUriChanged(address indexed creator, uint256 indexed tokenId, uint256 newIndex);
-    event ArtworkUrisAdded(address indexed creator, uint256 indexed tokenId, address indexed actor, uint256 count);
-    event ArtworkUriRemoved(address indexed creator, uint256 indexed tokenId, address indexed actor, uint256 index);
-    event ArtistPermissionsRevoked(address indexed creator, uint256 indexed tokenId, address indexed artist);
-    event HtmlTemplateUpdated();
+    /// @notice Default HTML template stored using SSTORE2 for gas efficiency
+    HtmlTemplate private defaultHtmlTemplate;
 
     /*//////////////////////////////////////////////////////////////
                             CONSTRUCTOR
@@ -174,8 +54,10 @@ contract Multiplex is Ownable, Lifebuoy {
 
     /// @notice Initialize the contract with an HTML template
     /// @param _htmlTemplate Initial HTML template with placeholders
-    constructor(string memory _htmlTemplate) {
-        defaultHtmlTemplatePointer = SSTORE2.write(bytes(_htmlTemplate));
+    /// @param _zipped True if the template is compressed with FastLZ
+    constructor(string memory _htmlTemplate, bool _zipped) {
+        defaultHtmlTemplate.chunks.push(SSTORE2.write(bytes(_htmlTemplate)));
+        defaultHtmlTemplate.zipped = _zipped;
         _initializeOwner(msg.sender);
     }
 
@@ -183,17 +65,35 @@ contract Multiplex is Ownable, Lifebuoy {
                             ACCESS HELPERS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Check if the account is an admin of the contract
+    /// @param contractAddress The contract to check admin status for
+    /// @param account The account to check admin status for
+    /// @return True if account is admin, false otherwise
+    /// @dev This is a utility function to use try/catch to check if the contract implements AdminControl
+    function tryIsAdmin(address contractAddress, address account) external view returns (bool) {
+        return IAdminControl(contractAddress).isAdmin(account);
+    }
+
+    /// @notice Check if the account is the owner of the contract
+    /// @param contractAddress The contract to check owner status for
+    /// @param account The account to check owner status for
+    /// @return True if account is owner, false otherwise
+    /// @dev This is a utility function to use try/catch to check if the contract implements Ownable
+    function tryOwner(address contractAddress, address account) external view returns (bool) {
+        return Ownable(contractAddress).owner() == account;
+    }
+
     /// @notice Check if the caller is an admin of the contract
     /// @param contractAddress The contract to check admin status for
     /// @return True if caller is admin, false otherwise
     function _isContractAdmin(address contractAddress) internal view returns (bool) {
         // First try to check if it's a Manifold contract with AdminControl
-        try IAdminControl(contractAddress).isAdmin(tx.origin) returns (bool isAdmin) {
+        try this.tryIsAdmin(contractAddress, tx.origin) returns (bool isAdmin) {
             return isAdmin;
         } catch {
             // If not, check if it implements standard Ownable interface
-            try Ownable(contractAddress).owner() returns (address contractOwner) {
-                return tx.origin == contractOwner;
+            try this.tryOwner(contractAddress, tx.origin) returns (bool isOwner) {
+                return isOwner;
             } catch {
                 // If neither, return false
                 return false;
@@ -215,49 +115,46 @@ contract Multiplex is Ownable, Lifebuoy {
     function _isTokenOwner(address contractAddress, uint256 tokenId) internal view returns (bool) {
         Token storage token = tokenData[contractAddress][tokenId];
 
+        bytes memory data;
+
+        // Form the call data based on ownership style
         if (token.ownership.style == OwnershipStyle.OWNER_OF) {
             // Call function that returns address (e.g., ownerOf(tokenId))
-            (bool success, bytes memory result) =
-                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, tokenId));
-            if (success && result.length >= 32) {
-                address owner = abi.decode(result, (address));
-                return owner == msg.sender;
-            }
+            data = abi.encodeWithSelector(token.ownership.selector, tokenId);
         } else if (token.ownership.style == OwnershipStyle.BALANCE_OF_ERC721) {
             // Call function that returns uint256 (e.g., balanceOf(address))
-            (bool success, bytes memory result) =
-                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, msg.sender));
-            if (success && result.length >= 32) {
-                uint256 balance = abi.decode(result, (uint256));
-                return balance > 0;
-            }
+            data = abi.encodeWithSelector(token.ownership.selector, msg.sender);
         } else if (token.ownership.style == OwnershipStyle.BALANCE_OF_ERC1155) {
             // Call function that returns uint256 (e.g., balanceOf(address, tokenId))
-            (bool success, bytes memory result) =
-                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, msg.sender, tokenId));
-            if (success && result.length >= 32) {
-                uint256 balance = abi.decode(result, (uint256));
-                return balance > 0;
-            }
-        } else if (token.ownership.style == OwnershipStyle.IS_APPROVED_FOR_ALL) {
-            // Call function that returns bool (e.g., isApprovedForAll(owner, operator))
-            // This requires knowing the owner address, so we need to get it first
-            // For now, we'll assume the selector takes (msg.sender, contractAddress)
-            (bool success, bytes memory result) = contractAddress.staticcall(
-                abi.encodeWithSelector(token.ownership.selector, msg.sender, contractAddress)
-            );
-            if (success && result.length >= 32) {
-                bool approved = abi.decode(result, (bool));
-                return approved;
-            }
+            data = abi.encodeWithSelector(token.ownership.selector, msg.sender, tokenId);
         } else if (token.ownership.style == OwnershipStyle.SIMPLE_BOOL) {
             // Call function that returns bool (e.g., isOwner(address))
-            (bool success, bytes memory result) =
-                contractAddress.staticcall(abi.encodeWithSelector(token.ownership.selector, msg.sender));
-            if (success && result.length >= 32) {
-                bool isOwner = abi.decode(result, (bool));
-                return isOwner;
-            }
+            data = abi.encodeWithSelector(token.ownership.selector, msg.sender);
+        } else {
+            return false;
+        }
+
+        // Single staticcall execution
+        (bool success, bytes memory result) = contractAddress.staticcall(data);
+
+        // Single success and length check
+        if (!success || result.length < 32) {
+            return false;
+        }
+
+        // Interpret the result based on ownership style
+        if (token.ownership.style == OwnershipStyle.OWNER_OF) {
+            address owner = abi.decode(result, (address));
+            return owner == msg.sender;
+        } else if (
+            token.ownership.style == OwnershipStyle.BALANCE_OF_ERC721
+                || token.ownership.style == OwnershipStyle.BALANCE_OF_ERC1155
+        ) {
+            uint256 balance = abi.decode(result, (uint256));
+            return balance > 0;
+        } else if (token.ownership.style == OwnershipStyle.SIMPLE_BOOL) {
+            bool boolResult = abi.decode(result, (bool));
+            return boolResult;
         }
 
         return false;
@@ -372,17 +269,33 @@ contract Multiplex is Ownable, Lifebuoy {
         string memory uriList = "";
 
         // Add artist URIs
-        for (uint256 i = 0; i < token.artwork.artistUris.length; i++) {
-            if (i > 0) uriList = string(abi.encodePacked(uriList, ","));
-            uriList = string(abi.encodePacked(uriList, '"', token.artwork.artistUris[i], '"'));
+        if (token.artwork.artistUris.length > 0) {
+            // First artist URI (no comma)
+            uriList = LibString.concat(LibString.concat('"', token.artwork.artistUris[0]), '"');
+
+            // Remaining artist URIs (always with comma)
+            for (uint256 i = 1; i < token.artwork.artistUris.length; i++) {
+                uriList = LibString.concat(
+                    LibString.concat(uriList, ',"'), LibString.concat(token.artwork.artistUris[i], '"')
+                );
+            }
         }
 
         // Add collector URIs
-        for (uint256 i = 0; i < token.artwork.collectorUris.length; i++) {
-            if (token.artwork.artistUris.length > 0 || i > 0) {
-                uriList = string(abi.encodePacked(uriList, ","));
+        if (token.artwork.collectorUris.length > 0) {
+            // First collector URI (comma only if there are artist URIs)
+            if (token.artwork.artistUris.length > 0) {
+                uriList = LibString.concat(uriList, ",");
             }
-            uriList = string(abi.encodePacked(uriList, '"', token.artwork.collectorUris[i], '"'));
+            uriList =
+                LibString.concat(LibString.concat(uriList, '"'), LibString.concat(token.artwork.collectorUris[0], '"'));
+
+            // Remaining collector URIs (always with comma)
+            for (uint256 i = 1; i < token.artwork.collectorUris.length; i++) {
+                uriList = LibString.concat(
+                    LibString.concat(uriList, ',"'), LibString.concat(token.artwork.collectorUris[i], '"')
+                );
+            }
         }
 
         return uriList;
@@ -396,9 +309,7 @@ contract Multiplex is Ownable, Lifebuoy {
 
         // Concatenate all chunks
         for (uint256 i = 0; i < thumbnail.chunks.length; i++) {
-            if (thumbnail.chunks[i] != address(0)) {
-                data = abi.encodePacked(data, SSTORE2.read(thumbnail.chunks[i]));
-            }
+            data = abi.encodePacked(data, SSTORE2.read(thumbnail.chunks[i]));
         }
 
         // Decompress if needed
@@ -410,16 +321,19 @@ contract Multiplex is Ownable, Lifebuoy {
     }
 
     /// @notice Load and combine HTML template chunks from storage
-    /// @param templatePointers Array of template chunk addresses
+    /// @param template The HTML template structure
     /// @return Combined HTML template string
-    function _loadHtmlTemplate(address[] storage templatePointers) internal view returns (string memory) {
+    function _loadHtmlTemplate(HtmlTemplate storage template) internal view returns (string memory) {
         bytes memory data;
 
         // Concatenate all chunks
-        for (uint256 i = 0; i < templatePointers.length; i++) {
-            if (templatePointers[i] != address(0)) {
-                data = abi.encodePacked(data, SSTORE2.read(templatePointers[i]));
-            }
+        for (uint256 i = 0; i < template.chunks.length; i++) {
+            data = abi.encodePacked(data, SSTORE2.read(template.chunks[i]));
+        }
+
+        // Decompress if needed
+        if (template.zipped) {
+            data = LibZip.flzDecompress(data);
         }
 
         return string(data);
@@ -452,10 +366,12 @@ contract Multiplex is Ownable, Lifebuoy {
     /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @param templateParts The new HTML template parts (empty array to use default)
+    /// @param zipped True if template parts are compressed with FastLZ
     function updateHtmlTemplate(
         address contractAddress,
         uint256 tokenId,
-        string[] calldata templateParts
+        string[] calldata templateParts,
+        bool zipped
     )
         external
         contractAdminRequired(contractAddress)
@@ -463,15 +379,16 @@ contract Multiplex is Ownable, Lifebuoy {
         Token storage token = tokenData[contractAddress][tokenId];
         require(token.permissions.flags & ARTIST_UPDATE_TEMPLATE != 0, ArtistPermissionRevoked());
 
-        // Clear existing template pointers
-        delete token.htmlTemplatePointers;
+        // Clear existing template chunks
+        delete token.htmlTemplate.chunks;
+
+        // Set compression flag
+        token.htmlTemplate.zipped = zipped;
 
         // Store new template parts as SSTORE2 chunks
-        if (templateParts.length > 0) {
-            for (uint256 i = 0; i < templateParts.length; i++) {
-                if (bytes(templateParts[i]).length > 0) {
-                    token.htmlTemplatePointers.push(SSTORE2.write(bytes(templateParts[i])));
-                }
+        for (uint256 i = 0; i < templateParts.length; i++) {
+            if (bytes(templateParts[i]).length > 0) {
+                token.htmlTemplate.chunks.push(SSTORE2.write(bytes(templateParts[i])));
             }
         }
 
@@ -583,11 +500,8 @@ contract Multiplex is Ownable, Lifebuoy {
     {
         Token storage token = tokenData[contractAddress][tokenId];
 
-        // Clear all artist permission bits
-        token.permissions.flags &= ~(
-            ARTIST_UPDATE_THUMB | ARTIST_UPDATE_META | ARTIST_CHOOSE_URIS | ARTIST_ADD_REMOVE | ARTIST_CHOOSE_THUMB
-                | ARTIST_UPDATE_MODE | ARTIST_UPDATE_TEMPLATE
-        );
+        // Clear all artist permission bits (bits 0-6) using bit shifting
+        token.permissions.flags = (token.permissions.flags >> ARTIST_BITS_COUNT) << ARTIST_BITS_COUNT;
 
         emit ArtistPermissionsRevoked(contractAddress, tokenId, msg.sender);
     }
@@ -641,6 +555,7 @@ contract Multiplex is Ownable, Lifebuoy {
                 // Move last element to deleted position and pop
                 token.artwork.artistUris[index] = token.artwork.artistUris[token.artwork.artistUris.length - 1];
                 token.artwork.artistUris.pop();
+                emit ArtworkUriRemoved(contractAddress, tokenId, msg.sender, indices[i]);
             }
 
             // Reset selection if out of bounds
@@ -659,11 +574,8 @@ contract Multiplex is Ownable, Lifebuoy {
                 // Move last element to deleted position and pop
                 token.artwork.collectorUris[index] = token.artwork.collectorUris[token.artwork.collectorUris.length - 1];
                 token.artwork.collectorUris.pop();
+                emit ArtworkUriRemoved(contractAddress, tokenId, msg.sender, indices[i]);
             }
-        }
-
-        for (uint256 i = 0; i < indices.length; i++) {
-            emit ArtworkUriRemoved(contractAddress, tokenId, msg.sender, indices[i]);
         }
     }
 
@@ -742,16 +654,29 @@ contract Multiplex is Ownable, Lifebuoy {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Update HTML template (contract admin only)
-    /// @param newTemplate New HTML template
-    function setDefaultHtmlTemplate(string calldata newTemplate) external onlyOwner {
-        defaultHtmlTemplatePointer = SSTORE2.write(bytes(newTemplate));
+    /// @param templateParts New HTML template parts
+    /// @param zipped True if template parts are compressed with FastLZ
+    function setDefaultHtmlTemplate(string[] calldata templateParts, bool zipped) external onlyOwner {
+        // Clear existing template chunks
+        delete defaultHtmlTemplate.chunks;
+
+        // Set compression flag
+        defaultHtmlTemplate.zipped = zipped;
+
+        // Store new template parts as SSTORE2 chunks
+        for (uint256 i = 0; i < templateParts.length; i++) {
+            if (bytes(templateParts[i]).length > 0) {
+                defaultHtmlTemplate.chunks.push(SSTORE2.write(bytes(templateParts[i])));
+            }
+        }
+
         emit HtmlTemplateUpdated();
     }
 
     /// @notice Get current HTML template
     /// @return The HTML template
     function getDefaultHtmlTemplate() external view returns (string memory) {
-        return string(SSTORE2.read(defaultHtmlTemplatePointer));
+        return _loadHtmlTemplate(defaultHtmlTemplate);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -792,10 +717,10 @@ contract Multiplex is Ownable, Lifebuoy {
 
         // Get HTML template (use token-specific template if available, otherwise use default)
         string memory htmlTemplate;
-        if (token.htmlTemplatePointers.length > 0) {
-            htmlTemplate = _loadHtmlTemplate(token.htmlTemplatePointers);
+        if (token.htmlTemplate.chunks.length > 0) {
+            htmlTemplate = _loadHtmlTemplate(token.htmlTemplate);
         } else {
-            htmlTemplate = string(SSTORE2.read(defaultHtmlTemplatePointer));
+            htmlTemplate = _loadHtmlTemplate(defaultHtmlTemplate);
         }
 
         // Replace placeholders in template
@@ -817,10 +742,10 @@ contract Multiplex is Ownable, Lifebuoy {
 
         // Get HTML template (use token-specific template if available, otherwise use default)
         string memory htmlTemplate;
-        if (token.htmlTemplatePointers.length > 0) {
-            htmlTemplate = _loadHtmlTemplate(token.htmlTemplatePointers);
+        if (token.htmlTemplate.chunks.length > 0) {
+            htmlTemplate = _loadHtmlTemplate(token.htmlTemplate);
         } else {
-            htmlTemplate = string(SSTORE2.read(defaultHtmlTemplatePointer));
+            htmlTemplate = _loadHtmlTemplate(defaultHtmlTemplate);
         }
 
         // Replace placeholders in template
@@ -841,10 +766,10 @@ contract Multiplex is Ownable, Lifebuoy {
         if (token.displayMode == DisplayMode.HTML) {
             // HTML mode: thumbnail in image, HTML content in animation_url
             string memory thumbnailUri = _resolveThumbnailUri(token);
-            json = _appendJsonField(json, string(abi.encodePacked('"image":"', thumbnailUri, '"')));
+            json = _appendJsonField(json, LibString.concat(LibString.concat('"image":"', thumbnailUri), '"'));
 
             string memory htmlUri = renderHTML(contractAddress, tokenId);
-            json = _appendJsonField(json, string(abi.encodePacked('"animation_url":"', htmlUri, '"')));
+            json = _appendJsonField(json, LibString.concat(LibString.concat('"animation_url":"', htmlUri), '"'));
         } else {
             // DIRECT_FILE mode
             if (!token.artwork.isAnimationUri) {
@@ -855,16 +780,16 @@ contract Multiplex is Ownable, Lifebuoy {
                         ? token.artwork.selectedArtistUriIndex
                         : 0;
                     string memory artworkUri = token.artwork.artistUris[artworkIndex];
-                    json = _appendJsonField(json, string(abi.encodePacked('"image":"', artworkUri, '"')));
+                    json = _appendJsonField(json, LibString.concat(LibString.concat('"image":"', artworkUri), '"'));
                 } else {
                     // No artist URIs at all, fallback to thumbnail
                     string memory thumbnailUri = _resolveThumbnailUri(token);
-                    json = _appendJsonField(json, string(abi.encodePacked('"image":"', thumbnailUri, '"')));
+                    json = _appendJsonField(json, LibString.concat(LibString.concat('"image":"', thumbnailUri), '"'));
                 }
             } else {
                 // Animation artwork: thumbnail in image, artwork in animation_url
                 string memory thumbnailUri = _resolveThumbnailUri(token);
-                json = _appendJsonField(json, string(abi.encodePacked('"image":"', thumbnailUri, '"')));
+                json = _appendJsonField(json, LibString.concat(LibString.concat('"image":"', thumbnailUri), '"'));
 
                 // Get artwork URI for animation_url
                 string memory artworkUri;
@@ -877,12 +802,13 @@ contract Multiplex is Ownable, Lifebuoy {
                 }
 
                 if (bytes(artworkUri).length > 0) {
-                    json = _appendJsonField(json, string(abi.encodePacked('"animation_url":"', artworkUri, '"')));
+                    json =
+                        _appendJsonField(json, LibString.concat(LibString.concat('"animation_url":"', artworkUri), '"'));
                 }
             }
         }
 
-        return _encodeDataUri("application/json", bytes(string(abi.encodePacked("{", json, "}"))), true);
+        return _encodeDataUri("application/json", bytes(LibString.concat(LibString.concat("{", json), "}")), true);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -977,8 +903,8 @@ contract Multiplex is Ownable, Lifebuoy {
     /// @return The HTML template (empty string if using default)
     function getTokenHtmlTemplate(address contractAddress, uint256 tokenId) external view returns (string memory) {
         Token storage token = tokenData[contractAddress][tokenId];
-        if (token.htmlTemplatePointers.length > 0) {
-            return _loadHtmlTemplate(token.htmlTemplatePointers);
+        if (token.htmlTemplate.chunks.length > 0) {
+            return _loadHtmlTemplate(token.htmlTemplate);
         }
         return ""; // Empty string indicates default template is being used
     }
@@ -1010,7 +936,10 @@ contract Multiplex is Ownable, Lifebuoy {
         returns (string memory)
     {
         string memory charset = utf8Charset ? ";charset=UTF-8" : "";
-        return string(abi.encodePacked("data:", mimeType, charset, ";base64,", Base64.encode(data)));
+        return LibString.concat(
+            LibString.concat("data:", mimeType),
+            LibString.concat(LibString.concat(charset, ";base64,"), Base64.encode(data))
+        );
     }
 
     /// @notice Append field to JSON
@@ -1019,6 +948,6 @@ contract Multiplex is Ownable, Lifebuoy {
     /// @return Updated JSON
     function _appendJsonField(string memory json, string memory field) internal pure returns (string memory) {
         if (bytes(json).length == 0) return field;
-        return string(abi.encodePacked(json, ",", field));
+        return LibString.concat(LibString.concat(json, ","), field);
     }
 }
