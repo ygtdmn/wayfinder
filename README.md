@@ -4,7 +4,10 @@ A Manifold Creator Extension for minting tokens with multiple media pointers. Th
 ## Work In Progress
 The project is currently WIP. The contract is deployed on Sepolia testnet and the frontend is a vibecoded frontend to interact with the contract.
 
-**Sepolia Contract Address:** 0x18A90Cc206c44F1931F17403A675DBC229d90173
+## Deployments
+### Sepolia
+**Multiplex:** 0x062EE7ceC8C01133bF5c68bD5C7d515fE3eC39e4
+**MultiplexManifoldExtension:** 0xf689d41DeA48B94ea9cE9d6e88E01fb9fD97F46f
 
 ## TODO
 ### Contract
@@ -13,7 +16,7 @@ The project is currently WIP. The contract is deployed on Sepolia testnet and th
 - Write proper documentation
 
 ### Frontend
-- Implement inflate/deflate feature
+- CRITICAL: Update to work with new MultiplexManifoldExtension
 - Remove hacky type declarations and useMemo usages, and improve overall TypeScript practices
 - Write proper documentation
 - If extension is registered, fix asking to register again
