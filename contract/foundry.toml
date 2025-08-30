@@ -8,7 +8,7 @@ evm_version = "shanghai"
 fuzz = { runs = 1_000 }
 gas_reports = ["*"]
 optimizer = true
-optimizer_runs = 5000
+optimizer_runs = 5_000
 out = "out"
 script = "script"
 solc = "0.8.30"
