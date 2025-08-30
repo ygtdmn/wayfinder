@@ -6,13 +6,12 @@ The project is currently WIP. The contract is deployed on Sepolia testnet and th
 
 ## Deployments
 ### Sepolia
-**Multiplex:** 0x062EE7ceC8C01133bF5c68bD5C7d515fE3eC39e4
-**MultiplexManifoldExtension:** 0xf689d41DeA48B94ea9cE9d6e88E01fb9fD97F46f
+**Multiplex:** 0xC66A08284AE5756b9a6623c1C64f98613F331888
+**MultiplexManifoldExtension:** 0xd3d98dFCAC2a6a4B61429425B3241D9401E4E7dB
 
 ## TODO
 ### Contract
 - Write proper tests for the contract
-- Reduce contract size to be able to build without --via-ir flag
 - Write proper documentation
 
 ### Frontend
