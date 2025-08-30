@@ -512,24 +512,28 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param uris The artwork URIs to add
     function addArtworkUris(address contractAddress, uint256 tokenId, string[] calldata uris) external {
         Token storage token = tokenData[contractAddress][tokenId];
-        bool isArtist = _isContractAdmin(contractAddress);
-        bool isCollector = _isTokenOwner(contractAddress, tokenId);
-
-        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
-
-        if (isArtist) {
+        
+        // Check if caller is contract admin (artist)
+        if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_ADD_REMOVE != 0, ArtistPermissionRevoked());
             for (uint256 i = 0; i < uris.length; i++) {
                 token.artwork.artistUris.push(uris[i]);
             }
-        } else {
+            emit ArtworkUrisAdded(contractAddress, tokenId, msg.sender, uris.length);
+            return;
+        }
+
+        // Check if caller is token owner (collector)
+        if (_isTokenOwner(contractAddress, tokenId)) {
             require(token.permissions.flags & COLLECTOR_ADD_REMOVE != 0, CollectorPermissionDenied());
             for (uint256 i = 0; i < uris.length; i++) {
                 token.artwork.collectorUris.push(uris[i]);
             }
+            emit ArtworkUrisAdded(contractAddress, tokenId, msg.sender, uris.length);
+            return;
         }
 
-        emit ArtworkUrisAdded(contractAddress, tokenId, msg.sender, uris.length);
+        revert NotTokenOwnerOrAdmin();
     }
 
     /// @notice Remove artwork URIs by indices (artist or collector, based on caller role)
@@ -538,13 +542,10 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param indices The indices to remove (must be sorted in descending order)
     function removeArtworkUris(address contractAddress, uint256 tokenId, uint256[] calldata indices) external {
         Token storage token = tokenData[contractAddress][tokenId];
-        bool isArtist = _isContractAdmin(contractAddress);
-        bool isCollector = _isTokenOwner(contractAddress, tokenId);
-
-        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
         require(indices.length > 0, InvalidIndexRange());
-
-        if (isArtist) {
+        
+        // Check if caller is contract admin (artist)
+        if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_ADD_REMOVE != 0, ArtistPermissionRevoked());
 
             // Remove in descending order to maintain indices
@@ -563,7 +564,11 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
                 token.artwork.selectedArtistUriIndex =
                     token.artwork.artistUris.length > 0 ? uint8(token.artwork.artistUris.length - 1) : 0;
             }
-        } else {
+            return;
+        }
+
+        // Check if caller is token owner (collector)
+        if (_isTokenOwner(contractAddress, tokenId)) {
             require(token.permissions.flags & COLLECTOR_ADD_REMOVE != 0, CollectorPermissionDenied());
 
             // Remove in descending order to maintain indices
@@ -576,7 +581,10 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
                 token.artwork.collectorUris.pop();
                 emit ArtworkUriRemoved(contractAddress, tokenId, msg.sender, indices[i]);
             }
+            return;
         }
+
+        revert NotTokenOwnerOrAdmin();
     }
 
     /// @notice Set selected artwork URI (artist or collector, based on permissions)
@@ -585,22 +593,28 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param index The 0-based index to select
     function setSelectedUri(address contractAddress, uint256 tokenId, uint256 index) external {
         Token storage token = tokenData[contractAddress][tokenId];
-        bool isArtist = _isContractAdmin(contractAddress);
-        bool isCollector = _isTokenOwner(contractAddress, tokenId);
-
-        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
-
-        if (isArtist) {
+        
+        // Check if caller is contract admin (artist)
+        if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_CHOOSE_URIS != 0, ArtistPermissionRevoked());
-        } else {
-            require(token.permissions.flags & COLLECTOR_CHOOSE_URIS != 0, CollectorPermissionDenied());
+            // Validate index (0-based)
+            require(index < token.artwork.artistUris.length, InvalidIndexRange());
+            token.artwork.selectedArtistUriIndex = index;
+            emit SelectedArtworkUriChanged(contractAddress, tokenId, index);
+            return;
         }
 
-        // Validate index (0-based)
-        require(index < token.artwork.artistUris.length, InvalidIndexRange());
+        // Check if caller is token owner (collector)
+        if (_isTokenOwner(contractAddress, tokenId)) {
+            require(token.permissions.flags & COLLECTOR_CHOOSE_URIS != 0, CollectorPermissionDenied());
+            // Validate index (0-based)
+            require(index < token.artwork.artistUris.length, InvalidIndexRange());
+            token.artwork.selectedArtistUriIndex = index;
+            emit SelectedArtworkUriChanged(contractAddress, tokenId, index);
+            return;
+        }
 
-        token.artwork.selectedArtistUriIndex = index;
-        emit SelectedArtworkUriChanged(contractAddress, tokenId, index);
+        revert NotTokenOwnerOrAdmin();
     }
 
     /// @notice Set selected thumbnail URI (artist or collector, based on permissions, off-chain only)
@@ -609,23 +623,29 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param index The 0-based index to select
     function setSelectedThumbnailUri(address contractAddress, uint256 tokenId, uint256 index) external {
         Token storage token = tokenData[contractAddress][tokenId];
-        bool isArtist = _isContractAdmin(contractAddress);
-        bool isCollector = _isTokenOwner(contractAddress, tokenId);
-
-        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
         require(token.thumbnail.kind == ThumbnailKind.OFF_CHAIN, InvalidThumbnailKind());
-
-        if (isArtist) {
+        
+        // Check if caller is contract admin (artist)
+        if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_CHOOSE_THUMB != 0, ArtistPermissionRevoked());
-        } else {
-            require(token.permissions.flags & COLLECTOR_CHOOSE_THUMB != 0, CollectorPermissionDenied());
+            // Validate index (0-based)
+            require(index < token.thumbnail.offChain.uris.length, InvalidIndexRange());
+            token.thumbnail.offChain.selectedUriIndex = index;
+            emit SelectedThumbnailUriChanged(contractAddress, tokenId, index);
+            return;
         }
 
-        // Validate index (0-based)
-        require(index < token.thumbnail.offChain.uris.length, InvalidIndexRange());
+        // Check if caller is token owner (collector)
+        if (_isTokenOwner(contractAddress, tokenId)) {
+            require(token.permissions.flags & COLLECTOR_CHOOSE_THUMB != 0, CollectorPermissionDenied());
+            // Validate index (0-based)
+            require(index < token.thumbnail.offChain.uris.length, InvalidIndexRange());
+            token.thumbnail.offChain.selectedUriIndex = index;
+            emit SelectedThumbnailUriChanged(contractAddress, tokenId, index);
+            return;
+        }
 
-        token.thumbnail.offChain.selectedUriIndex = index;
-        emit SelectedThumbnailUriChanged(contractAddress, tokenId, index);
+        revert NotTokenOwnerOrAdmin();
     }
 
     /// @notice Set display mode (artist or collector, based on permissions)
@@ -634,19 +654,24 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param displayMode The new display mode
     function setDisplayMode(address contractAddress, uint256 tokenId, DisplayMode displayMode) external {
         Token storage token = tokenData[contractAddress][tokenId];
-        bool isArtist = _isContractAdmin(contractAddress);
-        bool isCollector = _isTokenOwner(contractAddress, tokenId);
-
-        require(isArtist || isCollector, NotTokenOwnerOrAdmin());
-
-        if (isArtist) {
+        
+        // Check if caller is contract admin (artist)
+        if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_UPDATE_MODE != 0, ArtistPermissionRevoked());
-        } else {
-            require(token.permissions.flags & COLLECTOR_UPDATE_MODE != 0, CollectorPermissionDenied());
+            token.displayMode = displayMode;
+            emit DisplayModeUpdated(contractAddress, tokenId, displayMode);
+            return;
         }
 
-        token.displayMode = displayMode;
-        emit DisplayModeUpdated(contractAddress, tokenId, displayMode);
+        // Check if caller is token owner (collector)
+        if (_isTokenOwner(contractAddress, tokenId)) {
+            require(token.permissions.flags & COLLECTOR_UPDATE_MODE != 0, CollectorPermissionDenied());
+            token.displayMode = displayMode;
+            emit DisplayModeUpdated(contractAddress, tokenId, displayMode);
+            return;
+        }
+
+        revert NotTokenOwnerOrAdmin();
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -13,5 +13,6 @@ contract Deploy is BaseScript {
 
         multiplex = new Multiplex(htmlTemplate, false);
         extension = new MultiplexManifoldExtension(address(multiplex));
+        extension.setMultiplex(address(multiplex));
     }
 }
