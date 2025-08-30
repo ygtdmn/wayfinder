@@ -8,9 +8,8 @@ import { LibString } from "solady/utils/LibString.sol";
 import { LibZip } from "solady/utils/LibZip.sol";
 import { Ownable } from "solady/auth/Ownable.sol";
 import { IAdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/IAdminControl.sol";
-import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import { IMultiplex } from "./interfaces/IMultiplex.sol";
+import { IMultiplexCreator } from "./interfaces/IMultiplexCreator.sol";
 
 /**
  * @title Multiplex
@@ -18,10 +17,6 @@ import { IMultiplex } from "./interfaces/IMultiplex.sol";
  * @notice A universal URI distribution and management system for any contract
  */
 contract Multiplex is Ownable, Lifebuoy, IMultiplex {
-    /*//////////////////////////////////////////////////////////////
-                            DATA STRUCTURES  
-    //////////////////////////////////////////////////////////////*/
-
     // Permission bit positions
     uint16 constant ARTIST_UPDATE_THUMB = 2 ** 0;
     uint16 constant ARTIST_UPDATE_META = 2 ** 1;
@@ -45,8 +40,13 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @notice Mapping: creator contract => tokenId => token data
     mapping(address => mapping(uint256 => Token)) public tokenData;
 
+    /// @notice Mapping: creator contract => operator address for admin/ownership checks
+    /// @dev Operator handles IMultiplexCreator interface calls. For most contracts, operator = contract itself.
+    /// For Manifold extensions, operator = extension address
+    mapping(address => address) public collectionOperators;
+
     /// @notice Default HTML template stored using SSTORE2 for gas efficiency
-    HtmlTemplate private defaultHtmlTemplate;
+    HtmlTemplate private _defaultHtmlTemplate;
 
     /*//////////////////////////////////////////////////////////////
                             CONSTRUCTOR
@@ -56,8 +56,8 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param _htmlTemplate Initial HTML template with placeholders
     /// @param _zipped True if the template is compressed with FastLZ
     constructor(string memory _htmlTemplate, bool _zipped) {
-        defaultHtmlTemplate.chunks.push(SSTORE2.write(bytes(_htmlTemplate)));
-        defaultHtmlTemplate.zipped = _zipped;
+        _defaultHtmlTemplate.chunks.push(SSTORE2.write(bytes(_htmlTemplate)));
+        _defaultHtmlTemplate.zipped = _zipped;
         _initializeOwner(msg.sender);
     }
 
@@ -65,40 +65,133 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
                             ACCESS HELPERS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Check if the account is an admin of the contract
-    /// @param contractAddress The contract to check admin status for
+    /// @notice Restricts registration to collection owners/admins only
+    /// @param collectionAddress The collection to check ownership for
+    modifier onlyCollectionOwner(address collectionAddress) {
+        require(_isCollectionOwner(collectionAddress, msg.sender), WalletNotAdmin());
+        _;
+    }
+
+    /// @notice Register a collection with its operator contract
+    /// @param collectionAddress The collection contract address
+    /// @param operatorAddress The operator address (use address(0) to set as collectionAddress)
+    /// @dev Only the collection owner/admin can register. Operator handles IMultiplexCreator calls.
+    function registerCollection(
+        address collectionAddress,
+        address operatorAddress
+    )
+        external
+        onlyCollectionOwner(collectionAddress)
+    {
+        // If operatorAddress is zero, use the collection address itself
+        address operator = operatorAddress == address(0) ? collectionAddress : operatorAddress;
+
+        collectionOperators[collectionAddress] = operator;
+
+        emit CollectionRegistered(collectionAddress, operator, msg.sender);
+    }
+
+    /// @notice Check if an address is the operator for a collection
+    /// @param collectionAddress The collection contract address
+    /// @param operatorAddress The address to check
+    /// @return True if operatorAddress is the operator for the collection
+    function isCollectionOperator(address collectionAddress, address operatorAddress) external view returns (bool) {
+        return collectionOperators[collectionAddress] == operatorAddress;
+    }
+
+    /// @notice Check if account is owner/admin of a collection using fallback methods
+    /// @param collectionAddress The collection to check
+    /// @param account The account to check
+    /// @return True if account is owner/admin
+    function _isCollectionOwner(address collectionAddress, address account) internal view returns (bool) {
+        // Try AdminControl first
+        try this.tryIsAdmin(collectionAddress, account) returns (bool isAdmin) {
+            return isAdmin;
+        } catch {
+            // Try Ownable
+            try this.tryOwner(collectionAddress, account) returns (bool isOwner) {
+                return isOwner;
+            } catch {
+                return false;
+            }
+        }
+    }
+
+    /// @notice Check if the contract implements IAdminControl and if account is admin
+    /// @param contractAddress The contract to check
     /// @param account The account to check admin status for
-    /// @return True if account is admin, false otherwise
-    /// @dev This is a utility function to use try/catch to check if the contract implements AdminControl
+    /// @return True if contract implements IAdminControl and account is admin
+    /// @dev This is a utility function to use try/catch
     function tryIsAdmin(address contractAddress, address account) external view returns (bool) {
         return IAdminControl(contractAddress).isAdmin(account);
     }
 
-    /// @notice Check if the account is the owner of the contract
-    /// @param contractAddress The contract to check owner status for
+    /// @notice Check if the contract implements Ownable and if account is owner
+    /// @param contractAddress The contract to check
     /// @param account The account to check owner status for
-    /// @return True if account is owner, false otherwise
-    /// @dev This is a utility function to use try/catch to check if the contract implements Ownable
+    /// @return True if contract implements Ownable and account is owner
+    /// @dev This is a utility function to use try/catch
     function tryOwner(address contractAddress, address account) external view returns (bool) {
         return Ownable(contractAddress).owner() == account;
     }
 
-    /// @notice Check if the caller is an admin of the contract
+    /// @notice Check if the registered operator says account is admin of collection
+    /// @param operator The operator contract address
+    /// @param collectionAddress The collection contract address
+    /// @param account The account to check admin status for
+    /// @return True if operator says account is admin of collection
+    /// @dev This is a utility function to use try/catch
+    function tryMultiplexCreatorAdmin(
+        address operator,
+        address collectionAddress,
+        address account
+    )
+        external
+        view
+        returns (bool)
+    {
+        return IMultiplexCreator(operator).isContractAdmin(collectionAddress, account);
+    }
+
+    /// @notice Check if the registered operator says account owns token from collection
+    /// @param operator The operator contract address
+    /// @param collectionAddress The collection contract address
+    /// @param account The account to check ownership for
+    /// @param tokenId The token ID to check ownership for
+    /// @return True if operator says account owns token from collection
+    /// @dev This is a utility function to use try/catch
+    function tryMultiplexCreatorOwner(
+        address operator,
+        address collectionAddress,
+        address account,
+        uint256 tokenId
+    )
+        external
+        view
+        returns (bool)
+    {
+        return IMultiplexCreator(operator).isTokenOwner(collectionAddress, account, tokenId);
+    }
+
+    /// @notice Check if the caller is an admin of the contract using registered operator
     /// @param contractAddress The contract to check admin status for
     /// @return True if caller is admin, false otherwise
     function _isContractAdmin(address contractAddress) internal view returns (bool) {
-        // First try to check if it's a Manifold contract with AdminControl
-        try this.tryIsAdmin(contractAddress, tx.origin) returns (bool isAdmin) {
+        address operator = collectionOperators[contractAddress];
+        require(operator != address(0), CollectionNotRegistered());
+
+        try this.tryMultiplexCreatorAdmin(operator, contractAddress, msg.sender) returns (bool isAdmin) {
             return isAdmin;
         } catch {
-            // If not, check if it implements standard Ownable interface
-            try this.tryOwner(contractAddress, tx.origin) returns (bool isOwner) {
-                return isOwner;
-            } catch {
-                // If neither, return false
-                return false;
-            }
+            return false;
         }
+    }
+
+    /// @notice Restricts function access to registered collections only
+    /// @param contractAddress The contract to check registration for
+    modifier registeredCollectionRequired(address contractAddress) {
+        require(collectionOperators[contractAddress] != address(0), CollectionNotRegistered());
+        _;
     }
 
     /// @notice Restricts function access to contract admins only
@@ -108,56 +201,26 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         _;
     }
 
-    /// @notice Check if a msg.sender owns a specific token
+    /// @notice Restricts function access to collection operators only
+    /// @param contractAddress The contract to check operator for
+    modifier onlyCollectionOperator(address contractAddress) {
+        require(msg.sender == collectionOperators[contractAddress], UnauthorizedOperator());
+        _;
+    }
+
+    /// @notice Check if a msg.sender owns a specific token using registered implementation
     /// @param contractAddress The token contract address
     /// @param tokenId The token ID to check ownership for
     /// @return True if msg.sender owns the token, false otherwise
     function _isTokenOwner(address contractAddress, uint256 tokenId) internal view returns (bool) {
-        Token storage token = tokenData[contractAddress][tokenId];
+        address operator = collectionOperators[contractAddress];
+        require(operator != address(0), CollectionNotRegistered());
 
-        bytes memory data;
-
-        // Form the call data based on ownership style
-        if (token.ownership.style == OwnershipStyle.OWNER_OF) {
-            // Call function that returns address (e.g., ownerOf(tokenId))
-            data = abi.encodeWithSelector(token.ownership.selector, tokenId);
-        } else if (token.ownership.style == OwnershipStyle.BALANCE_OF_ERC721) {
-            // Call function that returns uint256 (e.g., balanceOf(address))
-            data = abi.encodeWithSelector(token.ownership.selector, msg.sender);
-        } else if (token.ownership.style == OwnershipStyle.BALANCE_OF_ERC1155) {
-            // Call function that returns uint256 (e.g., balanceOf(address, tokenId))
-            data = abi.encodeWithSelector(token.ownership.selector, msg.sender, tokenId);
-        } else if (token.ownership.style == OwnershipStyle.SIMPLE_BOOL) {
-            // Call function that returns bool (e.g., isOwner(address))
-            data = abi.encodeWithSelector(token.ownership.selector, msg.sender);
-        } else {
+        try this.tryMultiplexCreatorOwner(operator, contractAddress, msg.sender, tokenId) returns (bool isOwner) {
+            return isOwner;
+        } catch {
             return false;
         }
-
-        // Single staticcall execution
-        (bool success, bytes memory result) = contractAddress.staticcall(data);
-
-        // Single success and length check
-        if (!success || result.length < 32) {
-            return false;
-        }
-
-        // Interpret the result based on ownership style
-        if (token.ownership.style == OwnershipStyle.OWNER_OF) {
-            address owner = abi.decode(result, (address));
-            return owner == msg.sender;
-        } else if (
-            token.ownership.style == OwnershipStyle.BALANCE_OF_ERC721
-                || token.ownership.style == OwnershipStyle.BALANCE_OF_ERC1155
-        ) {
-            uint256 balance = abi.decode(result, (uint256));
-            return balance > 0;
-        } else if (token.ownership.style == OwnershipStyle.SIMPLE_BOOL) {
-            bool boolResult = abi.decode(result, (bool));
-            return boolResult;
-        }
-
-        return false;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -176,7 +239,8 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         bytes[] calldata thumbnailChunks
     )
         external
-        contractAdminRequired(contractAddress)
+        registeredCollectionRequired(contractAddress)
+        onlyCollectionOperator(contractAddress)
     {
         Token storage token = tokenData[contractAddress][tokenId];
 
@@ -189,9 +253,6 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
 
         // Set permissions
         token.permissions = config.permissions;
-
-        // Set ownership configuration
-        token.ownership = config.ownership;
 
         // Set thumbnail data
         token.thumbnail = config.thumbnail;
@@ -237,11 +298,6 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         }
         if (config.thumbnail.offChain.selectedUriIndex >= config.thumbnail.offChain.uris.length) {
             revert InvalidSelectedThumbnailUriIndex();
-        }
-
-        // Ownership Checks
-        if (config.ownership.selector == bytes4(0)) {
-            revert InvalidOwnershipFunction();
         }
 
         emit TokenDataInitialized(contractAddress, tokenId);
@@ -353,6 +409,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         string calldata newMetadata
     )
         external
+        registeredCollectionRequired(contractAddress)
         contractAdminRequired(contractAddress)
     {
         Token storage token = tokenData[contractAddress][tokenId];
@@ -374,6 +431,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         bool zipped
     )
         external
+        registeredCollectionRequired(contractAddress)
         contractAdminRequired(contractAddress)
     {
         Token storage token = tokenData[contractAddress][tokenId];
@@ -407,6 +465,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         bytes[] calldata thumbnailChunks
     )
         external
+        registeredCollectionRequired(contractAddress)
         contractAdminRequired(contractAddress)
     {
         Token storage token = tokenData[contractAddress][tokenId];
@@ -458,6 +517,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         bool revokeUpdateTemplate
     )
         external
+        registeredCollectionRequired(contractAddress)
         contractAdminRequired(contractAddress)
     {
         Token storage token = tokenData[contractAddress][tokenId];
@@ -496,6 +556,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         uint256 tokenId
     )
         external
+        registeredCollectionRequired(contractAddress)
         contractAdminRequired(contractAddress)
     {
         Token storage token = tokenData[contractAddress][tokenId];
@@ -510,9 +571,16 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @param uris The artwork URIs to add
-    function addArtworkUris(address contractAddress, uint256 tokenId, string[] calldata uris) external {
+    function addArtworkUris(
+        address contractAddress,
+        uint256 tokenId,
+        string[] calldata uris
+    )
+        external
+        registeredCollectionRequired(contractAddress)
+    {
         Token storage token = tokenData[contractAddress][tokenId];
-        
+
         // Check if caller is contract admin (artist)
         if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_ADD_REMOVE != 0, ArtistPermissionRevoked());
@@ -540,10 +608,17 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @param indices The indices to remove (must be sorted in descending order)
-    function removeArtworkUris(address contractAddress, uint256 tokenId, uint256[] calldata indices) external {
+    function removeArtworkUris(
+        address contractAddress,
+        uint256 tokenId,
+        uint256[] calldata indices
+    )
+        external
+        registeredCollectionRequired(contractAddress)
+    {
         Token storage token = tokenData[contractAddress][tokenId];
         require(indices.length > 0, InvalidIndexRange());
-        
+
         // Check if caller is contract admin (artist)
         if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_ADD_REMOVE != 0, ArtistPermissionRevoked());
@@ -591,9 +666,16 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @param index The 0-based index to select
-    function setSelectedUri(address contractAddress, uint256 tokenId, uint256 index) external {
+    function setSelectedUri(
+        address contractAddress,
+        uint256 tokenId,
+        uint256 index
+    )
+        external
+        registeredCollectionRequired(contractAddress)
+    {
         Token storage token = tokenData[contractAddress][tokenId];
-        
+
         // Check if caller is contract admin (artist)
         if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_CHOOSE_URIS != 0, ArtistPermissionRevoked());
@@ -621,10 +703,17 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @param index The 0-based index to select
-    function setSelectedThumbnailUri(address contractAddress, uint256 tokenId, uint256 index) external {
+    function setSelectedThumbnailUri(
+        address contractAddress,
+        uint256 tokenId,
+        uint256 index
+    )
+        external
+        registeredCollectionRequired(contractAddress)
+    {
         Token storage token = tokenData[contractAddress][tokenId];
         require(token.thumbnail.kind == ThumbnailKind.OFF_CHAIN, InvalidThumbnailKind());
-        
+
         // Check if caller is contract admin (artist)
         if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_CHOOSE_THUMB != 0, ArtistPermissionRevoked());
@@ -652,9 +741,16 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param contractAddress The creator contract address
     /// @param tokenId The token ID
     /// @param displayMode The new display mode
-    function setDisplayMode(address contractAddress, uint256 tokenId, DisplayMode displayMode) external {
+    function setDisplayMode(
+        address contractAddress,
+        uint256 tokenId,
+        DisplayMode displayMode
+    )
+        external
+        registeredCollectionRequired(contractAddress)
+    {
         Token storage token = tokenData[contractAddress][tokenId];
-        
+
         // Check if caller is contract admin (artist)
         if (_isContractAdmin(contractAddress)) {
             require(token.permissions.flags & ARTIST_UPDATE_MODE != 0, ArtistPermissionRevoked());
@@ -683,15 +779,15 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @param zipped True if template parts are compressed with FastLZ
     function setDefaultHtmlTemplate(string[] calldata templateParts, bool zipped) external onlyOwner {
         // Clear existing template chunks
-        delete defaultHtmlTemplate.chunks;
+        delete _defaultHtmlTemplate.chunks;
 
         // Set compression flag
-        defaultHtmlTemplate.zipped = zipped;
+        _defaultHtmlTemplate.zipped = zipped;
 
         // Store new template parts as SSTORE2 chunks
         for (uint256 i = 0; i < templateParts.length; i++) {
             if (bytes(templateParts[i]).length > 0) {
-                defaultHtmlTemplate.chunks.push(SSTORE2.write(bytes(templateParts[i])));
+                _defaultHtmlTemplate.chunks.push(SSTORE2.write(bytes(templateParts[i])));
             }
         }
 
@@ -701,7 +797,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
     /// @notice Get current HTML template
     /// @return The HTML template
     function getDefaultHtmlTemplate() external view returns (string memory) {
-        return _loadHtmlTemplate(defaultHtmlTemplate);
+        return _loadHtmlTemplate(_defaultHtmlTemplate);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -745,7 +841,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         if (token.htmlTemplate.chunks.length > 0) {
             htmlTemplate = _loadHtmlTemplate(token.htmlTemplate);
         } else {
-            htmlTemplate = _loadHtmlTemplate(defaultHtmlTemplate);
+            htmlTemplate = _loadHtmlTemplate(_defaultHtmlTemplate);
         }
 
         // Replace placeholders in template
@@ -770,7 +866,7 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         if (token.htmlTemplate.chunks.length > 0) {
             htmlTemplate = _loadHtmlTemplate(token.htmlTemplate);
         } else {
-            htmlTemplate = _loadHtmlTemplate(defaultHtmlTemplate);
+            htmlTemplate = _loadHtmlTemplate(_defaultHtmlTemplate);
         }
 
         // Replace placeholders in template
@@ -905,21 +1001,6 @@ contract Multiplex is Ownable, Lifebuoy, IMultiplex {
         Token storage token = tokenData[contractAddress][tokenId];
         thumbnailKind = token.thumbnail.kind;
         selectedIndex = token.thumbnail.kind == ThumbnailKind.OFF_CHAIN ? token.thumbnail.offChain.selectedUriIndex : 0;
-    }
-
-    /// @notice Get ownership configuration
-    /// @param contractAddress The contract address
-    /// @param tokenId The token ID
-    /// @return The ownership configuration
-    function getOwnershipConfig(
-        address contractAddress,
-        uint256 tokenId
-    )
-        external
-        view
-        returns (OwnershipConfig memory)
-    {
-        return tokenData[contractAddress][tokenId].ownership;
     }
 
     /// @notice Get HTML template for a specific token

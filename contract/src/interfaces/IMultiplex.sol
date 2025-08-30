@@ -20,15 +20,6 @@ interface IMultiplex {
 
     }
 
-    /// @notice Ownership check style
-    enum OwnershipStyle {
-        OWNER_OF, // Returns address, check if == msg.sender (e.g., ownerOf(tokenId))
-        BALANCE_OF_ERC721, // Returns uint256, check if > 0 (e.g., balanceOf(address))
-        BALANCE_OF_ERC1155, // Returns uint256, check if > 0 (e.g., balanceOf(address, tokenId))
-        SIMPLE_BOOL // Returns bool, check if == true (e.g., isOwner(address))
-
-    }
-
     /*//////////////////////////////////////////////////////////////
                             DATA STRUCTURES  
     //////////////////////////////////////////////////////////////*/
@@ -81,15 +72,7 @@ interface IMultiplex {
         Artwork artwork; // Artwork configuration and URIs
         Permissions permissions; // Permission flags for artist and collector actions
         DisplayMode displayMode; // Current display mode
-        OwnershipConfig ownership; // How to check token ownership
         HtmlTemplate htmlTemplate; // Custom HTML template for this token (empty chunks = use default)
-    }
-
-    /// @notice Ownership check configuration
-    struct OwnershipConfig {
-        bytes4 selector; // Function selector (e.g., OwnershipSelectors.OWNER_OF, OwnershipSelectors.BALANCE_OF, or
-            // custom)
-        OwnershipStyle style; // How to interpret the result
     }
 
     /// @notice Configuration for initializing token data
@@ -99,7 +82,6 @@ interface IMultiplex {
         Thumbnail thumbnail;
         DisplayMode displayMode;
         Permissions permissions;
-        OwnershipConfig ownership;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -109,8 +91,9 @@ interface IMultiplex {
     error WalletNotAdmin();
     error NotTokenOwner();
     error NotTokenOwnerOrAdmin();
-    error InvalidOwnershipFunction();
     error InvalidIndexRange();
+    error CollectionNotRegistered();
+    error UnauthorizedOperator();
     error ArtistPermissionRevoked();
     error CollectorPermissionDenied();
     error InvalidThumbnailKind();
@@ -121,11 +104,15 @@ interface IMultiplex {
     error InvalidFileHash();
     error InvalidSelectedArtistUriIndex();
     error InvalidSelectedThumbnailUriIndex();
+    error InvalidInterface();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
+    event CollectionRegistered(
+        address indexed collectionAddress, address indexed implementationAddress, address indexed registerer
+    );
     event TokenDataInitialized(address indexed creator, uint256 indexed tokenId);
     event MetadataUpdated(address indexed creator, uint256 indexed tokenId);
     event ThumbnailUpdated(address indexed creator, uint256 indexed tokenId);
@@ -136,6 +123,21 @@ interface IMultiplex {
     event ArtworkUriRemoved(address indexed creator, uint256 indexed tokenId, address indexed actor, uint256 index);
     event ArtistPermissionsRevoked(address indexed creator, uint256 indexed tokenId, address indexed artist);
     event HtmlTemplateUpdated();
+
+    /*//////////////////////////////////////////////////////////////
+                        COLLECTION REGISTRATION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Register a collection with its operator contract
+    /// @param collectionAddress The collection contract address
+    /// @param operatorAddress The operator address (use address(0) to set as collectionAddress)
+    function registerCollection(address collectionAddress, address operatorAddress) external;
+
+    /// @notice Check if an address is the operator for a collection
+    /// @param collectionAddress The collection contract address
+    /// @param operatorAddress The address to check
+    /// @return True if operatorAddress is the operator for the collection
+    function isCollectionOperator(address collectionAddress, address operatorAddress) external view returns (bool);
 
     /*//////////////////////////////////////////////////////////////
                         TOKEN INITIALIZATION
@@ -347,18 +349,6 @@ interface IMultiplex {
         external
         view
         returns (ThumbnailKind thumbnailKind, uint256 selectedIndex);
-
-    /// @notice Get ownership configuration
-    /// @param contractAddress The contract address
-    /// @param tokenId The token ID
-    /// @return The ownership configuration
-    function getOwnershipConfig(
-        address contractAddress,
-        uint256 tokenId
-    )
-        external
-        view
-        returns (OwnershipConfig memory);
 
     /// @notice Get HTML template for a specific token
     /// @param contractAddress The contract address
