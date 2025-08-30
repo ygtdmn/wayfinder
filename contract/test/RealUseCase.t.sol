@@ -32,6 +32,9 @@ contract RealUseCaseTest is Test {
 
         IERC1155CreatorCore ephemera = IERC1155CreatorCore(address(0xCb337152b6181683010D07e3f00e7508cd348BC7));
         ephemera.registerExtension(address(extension), "");
+        
+        // Register the ephemera contract with Multiplex
+        multiplex.registerContract(address(ephemera), address(extension));
         address[] memory recipients = new address[](1);
         recipients[0] = address(0x6);
         uint256[] memory quantities = new uint256[](1);
@@ -69,16 +72,12 @@ contract RealUseCaseTest is Test {
         IMultiplex.DisplayMode displayMode = IMultiplex.DisplayMode.HTML;
         IMultiplex.Permissions memory permissions = IMultiplex.Permissions({ flags: uint16(0xFFFF) });
 
-        IMultiplex.OwnershipConfig memory ownership =
-            IMultiplex.OwnershipConfig({ selector: 0x6352211e, style: IMultiplex.OwnershipStyle.OWNER_OF });
-
         IMultiplex.InitConfig memory config = IMultiplex.InitConfig({
             metadata: metadata,
             artwork: artwork,
             thumbnail: thumbnail,
             displayMode: displayMode,
-            permissions: permissions,
-            ownership: ownership
+            permissions: permissions
         });
 
         bytes[] memory thumbnailChunks = new bytes[](0);

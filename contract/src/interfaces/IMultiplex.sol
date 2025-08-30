@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.30 <0.9.0;
 
+/**
+ * @title IMultiplex
+ * @author Yigit Duman (@yigitduman)
+ * @notice Interface for the Multiplex contract
+ */
 interface IMultiplex {
     /*//////////////////////////////////////////////////////////////
                                 ENUMS
@@ -92,7 +97,7 @@ interface IMultiplex {
     error NotTokenOwner();
     error NotTokenOwnerOrAdmin();
     error InvalidIndexRange();
-    error CollectionNotRegistered();
+    error ContractNotRegistered();
     error UnauthorizedOperator();
     error ArtistPermissionRevoked();
     error CollectorPermissionDenied();
@@ -110,8 +115,8 @@ interface IMultiplex {
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event CollectionRegistered(
-        address indexed collectionAddress, address indexed implementationAddress, address indexed registerer
+    event ContractRegistered(
+        address indexed contractAddress, address indexed implementationAddress, address indexed registerer
     );
     event TokenDataInitialized(address indexed creator, uint256 indexed tokenId);
     event MetadataUpdated(address indexed creator, uint256 indexed tokenId);
@@ -128,16 +133,16 @@ interface IMultiplex {
                         COLLECTION REGISTRATION
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Register a collection with its operator contract
-    /// @param collectionAddress The collection contract address
-    /// @param operatorAddress The operator address (use address(0) to set as collectionAddress)
-    function registerCollection(address collectionAddress, address operatorAddress) external;
+    /// @notice Register a contract with its operator contract
+    /// @param contractAddress The contract contract address
+    /// @param operatorAddress The operator address (use address(0) to set as contractAddress)
+    function registerContract(address contractAddress, address operatorAddress) external;
 
-    /// @notice Check if an address is the operator for a collection
-    /// @param collectionAddress The collection contract address
+    /// @notice Check if an address is the operator for a contract
+    /// @param contractAddress The contract contract address
     /// @param operatorAddress The address to check
-    /// @return True if operatorAddress is the operator for the collection
-    function isCollectionOperator(address collectionAddress, address operatorAddress) external view returns (bool);
+    /// @return True if operatorAddress is the operator for the contract
+    function isContractOperator(address contractAddress, address operatorAddress) external view returns (bool);
 
     /*//////////////////////////////////////////////////////////////
                         TOKEN INITIALIZATION

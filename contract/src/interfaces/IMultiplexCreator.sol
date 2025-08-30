@@ -1,22 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.30 <0.9.0;
 
+import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+
 /**
  * @title IMultiplexCreator
  * @author Yigit Duman (@yigitduman)
- * @notice Interface for creator contracts that want to delegate admin and ownership checks to themselves
- * @dev This allows creator contracts to define their own logic for determining admins and token owners,
- *      which is especially important for smart wallet compatibility
  */
-interface IMultiplexCreator {
-    /**
-     * @notice Check if an account is an admin of a creator contract
-     * @param creatorContract The creator contract address to check admin status for
-     * @param account The account to check admin status for
-     * @return True if account is admin, false otherwise
-     */
-    function isContractAdmin(address creatorContract, address account) external view returns (bool);
-
+interface IMultiplexCreator is IERC165 {
     /**
      * @notice Check if an account owns a specific token from a creator contract
      * @param creatorContract The creator contract address to check ownership for

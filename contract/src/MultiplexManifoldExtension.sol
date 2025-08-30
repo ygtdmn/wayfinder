@@ -19,10 +19,6 @@ import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
  * @notice A Manifold Creator Extension for minting tokens with Multiplex
  */
 contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, IMultiplexCreator, Lifebuoy {
-    /*//////////////////////////////////////////////////////////////
-                                STORAGE
-    //////////////////////////////////////////////////////////////*/
-
     /// @notice The Multiplex contract that handles token data and rendering
     IMultiplex public multiplex;
 
@@ -31,7 +27,6 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     //////////////////////////////////////////////////////////////*/
 
     error WalletNotAdmin();
-    error ContractMustImplementERC721OrERC1155();
     error InvalidIndexRange();
     error MultiplexNotSet();
     error InvalidRecipient();
@@ -57,62 +52,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     }
 
     /*//////////////////////////////////////////////////////////////
-                            ACCESS HELPERS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Check if the account is an admin of the contract
-    /// @param contractAddress The contract to check admin status for
-    /// @param account The account to check admin status for
-    /// @return True if account is admin, false otherwise
-    /// @dev This is a utility function to use try/catch to check if the contract implements AdminControl
-    function tryIsAdmin(address contractAddress, address account) external view returns (bool) {
-        return AdminControl(contractAddress).isAdmin(account);
-    }
-
-    /// @notice Check if an account owns a token via ERC721 ownerOf
-    /// @param contractAddress The contract to check
-    /// @param account The account to check ownership for
-    /// @param tokenId The token ID to check ownership for
-    /// @return True if account owns the token, false otherwise
-    /// @dev This is a utility function to use try/catch
-    function tryOwnerOf(address contractAddress, address account, uint256 tokenId) external view returns (bool) {
-        address owner = IERC721(contractAddress).ownerOf(tokenId);
-        return owner == account;
-    }
-
-    /// @notice Check if an account has a balance for a token via ERC1155 balanceOf
-    /// @param contractAddress The contract to check
-    /// @param account The account to check balance for
-    /// @param tokenId The token ID to check balance for
-    /// @return True if account has balance > 0, false otherwise
-    /// @dev This is a utility function to use try/catch
-    function tryBalanceOf(address contractAddress, address account, uint256 tokenId) external view returns (bool) {
-        uint256 balance = IERC1155(contractAddress).balanceOf(account, tokenId);
-        return balance > 0;
-    }
-
-    /// @notice Check if the caller is an admin of the contract
-    /// @param contractAddress The contract to check admin status for
-    /// @return True if caller is admin, false otherwise
-    function _isContractAdmin(address contractAddress) internal view returns (bool) {
-        // Try to check if it's a Manifold contract with AdminControl
-        try this.tryIsAdmin(contractAddress, msg.sender) returns (bool isAdmin) {
-            return isAdmin;
-        } catch {
-            // If not, return false
-            return false;
-        }
-    }
-
-    /// @notice Restricts function access to contract admins only
-    /// @param contractAddress The contract to check admin status for
-    modifier contractAdminRequired(address contractAddress) {
-        require(_isContractAdmin(contractAddress), WalletNotAdmin());
-        _;
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            ADMIN FUNCTIONS
+                             MULTIPLEX
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Update the Multiplex contract address (admin only)
@@ -122,8 +62,66 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         emit MultiplexUpdated(_multiplex);
     }
 
+    /// @notice Get Multiplex contract address
+    /// @return The Multiplex contract address
+    function getMultiplex() external view returns (address) {
+        return address(multiplex);
+    }
+
     /*//////////////////////////////////////////////////////////////
-                            MINTING
+                            ACCESS HELPERS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Check if the caller is an admin of the contract
+    /// @param contractAddress The contract to check admin status for
+    /// @return True if caller is admin, false otherwise
+    function _isContractAdmin(address contractAddress) internal view returns (bool) {
+        (bool ok, bytes memory ret) = contractAddress.staticcall(abi.encodeWithSelector(AdminControl.isAdmin.selector, msg.sender));
+        if (ok && ret.length >= 32) {
+            return abi.decode(ret, (bool));
+        }
+        return false;
+    }
+
+    /// @notice Restricts function access to contract admins only
+    /// @param contractAddress The contract to check admin status for
+    modifier contractAdminRequired(address contractAddress) {
+        require(_isContractAdmin(contractAddress), WalletNotAdmin());
+        _;
+    }
+
+    /// @notice Check if an account owns a specific token from a creator contract
+    /// @param creatorContract The creator contract address to check ownership for
+    /// @param account The account to check ownership for
+    /// @param tokenId The token ID to check ownership for
+    /// @return True if account owns the token, false otherwise
+    function isTokenOwner(
+        address creatorContract,
+        address account,
+        uint256 tokenId
+    )
+        external
+        view
+        override
+        returns (bool)
+    {
+        // Try ERC721 ownerOf first
+        (bool ok, bytes memory ret) = creatorContract.staticcall(abi.encodeWithSelector(IERC721.ownerOf.selector, tokenId));
+        if (ok && ret.length >= 32) {
+            return abi.decode(ret, (address)) == account;
+        }
+        
+        // Try ERC1155 balanceOf if ERC721 fails
+        (ok, ret) = creatorContract.staticcall(abi.encodeWithSelector(IERC1155.balanceOf.selector, account, tokenId));
+        if (ok && ret.length >= 32) {
+            return abi.decode(ret, (uint256)) > 0;
+        }
+        
+        return false;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                MINTING
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Mint one ERC1155 token and send it to multiple addresses with specified quantities
@@ -163,7 +161,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         emit TokenMintedERC1155(contractAddress, tokenId, recipients, quantities);
     }
 
-    /// @notice Mint ERC721 tokens to multiple addresses (one per address)
+    /// @notice Mint an ERC721 token to a single address
     /// @param contractAddress The ERC721 contract address
     /// @param recipient Address to mint to
     /// @param config Mint configuration
@@ -190,46 +188,6 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     }
 
     /*//////////////////////////////////////////////////////////////
-                        IMULTIPLEX CREATOR INTERFACE
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Check if an account is an admin of a creator contract
-    /// @param creatorContract The creator contract address to check admin status for
-    /// @param account The account to check admin status for
-    /// @return True if account is admin, false otherwise
-    function isContractAdmin(address creatorContract, address account) external view override returns (bool) {
-        // Try AdminControl interface
-        try this.tryIsAdmin(creatorContract, account) returns (bool isAdmin) {
-            return isAdmin;
-        } catch {
-            return false;
-        }
-    }
-
-    /// @notice Check if an account owns a specific token from a creator contract
-    /// @param creatorContract The creator contract address to check ownership for
-    /// @param account The account to check ownership for
-    /// @param tokenId The token ID to check ownership for
-    /// @return True if account owns the token, false otherwise
-    /// @dev Uses try/catch helper functions for proper error handling
-    function isTokenOwner(address creatorContract, address account, uint256 tokenId) external view override returns (bool) {
-        // First try ERC721 ownerOf
-        try this.tryOwnerOf(creatorContract, account, tokenId) returns (bool isOwner) {
-            return isOwner;
-        } catch {
-            // If ownerOf fails, try ERC1155 balanceOf
-            try this.tryBalanceOf(creatorContract, account, tokenId) returns (bool hasBalance) {
-                return hasBalance;
-            } catch {
-                // If both fail, return false
-                return false;
-            }
-        }
-    }
-
-
-
-    /*//////////////////////////////////////////////////////////////
                                TOKEN URI
     //////////////////////////////////////////////////////////////*/
 
@@ -245,19 +203,12 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
                         INTERFACE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Get Multiplex contract address
-    /// @return The Multiplex contract address
-    function getMultiplex() external view returns (address) {
-        return address(multiplex);
-    }
-
     /// @notice Check if contract supports a given interface
     /// @param interfaceId The interface ID to check
     /// @return True if interface is supported
     function supportsInterface(bytes4 interfaceId) public view virtual override(AdminControl, IERC165) returns (bool) {
-        return interfaceId == type(ICreatorExtensionTokenURI).interfaceId 
-            || interfaceId == type(IMultiplexCreator).interfaceId
-            || AdminControl.supportsInterface(interfaceId)
+        return interfaceId == type(ICreatorExtensionTokenURI).interfaceId
+            || interfaceId == type(IMultiplexCreator).interfaceId || AdminControl.supportsInterface(interfaceId)
             || super.supportsInterface(interfaceId);
     }
 }

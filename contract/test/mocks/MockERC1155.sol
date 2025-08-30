@@ -2,8 +2,10 @@
 pragma solidity >=0.8.30 <0.9.0;
 
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import { IMultiplexCreator } from "src/interfaces/IMultiplexCreator.sol";
+import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-contract MockERC1155 is ERC1155 {
+contract MockERC1155 is ERC1155, IMultiplexCreator {
     mapping(address => bool) private _admins;
     address private _owner;
 
@@ -27,5 +29,20 @@ contract MockERC1155 is ERC1155 {
     function setAdmin(address account, bool adminStatus) external {
         require(_admins[msg.sender], "Not admin");
         _admins[account] = adminStatus;
+    }
+
+    function isTokenOwner(
+        address creatorContract,
+        address account,
+        uint256 tokenId
+    ) external view override returns (bool) {
+        if (creatorContract == address(this)) {
+            return balanceOf(account, tokenId) > 0;
+        }
+        return false;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC1155, IERC165) returns (bool) {
+        return interfaceId == type(IMultiplexCreator).interfaceId || super.supportsInterface(interfaceId);
     }
 }

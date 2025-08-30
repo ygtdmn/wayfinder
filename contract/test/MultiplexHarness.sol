@@ -7,11 +7,11 @@ contract MultiplexHarness is Multiplex {
     constructor() Multiplex("<html>{{FILE_URIS}}</html>", false) { }
 
     function isContractAdminPublic(address contractAddress) external view returns (bool) {
-        return _isContractAdmin(contractAddress);
+        return _isContractAdmin(contractAddress, msg.sender);
     }
 
     function isTokenOwnerPublic(address contractAddress, uint256 tokenId) external view returns (bool) {
-        return _isTokenOwner(contractAddress, tokenId);
+        return _isTokenOwner(contractAddress, tokenId, msg.sender);
     }
 
     function resolveThumbnailUriPublic(

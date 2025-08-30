@@ -4,6 +4,7 @@ pragma solidity >=0.8.30 <0.9.0;
 import "forge-std/src/Test.sol";
 import { Multiplex } from "src/Multiplex.sol";
 import { IMultiplex } from "src/interfaces/IMultiplex.sol";
+import { IMultiplexCreator } from "src/interfaces/IMultiplexCreator.sol";
 import { MockCustomOwnership } from "test/mocks/MockCustomOwnership.sol";
 import { MockAdminControl } from "test/mocks/MockAdminControl.sol";
 import { ERC721 } from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -12,6 +13,7 @@ import { LibZip } from "solady/utils/LibZip.sol";
 import { MockERC721 } from "test/mocks/MockERC721.sol";
 import { MockERC1155 } from "test/mocks/MockERC1155.sol";
 import { MockOwnable } from "test/mocks/MockOwnable.sol";
+import { MockMultiplexExtension } from "test/mocks/MockMultiplexExtension.sol";
 import { MultiplexHarness } from "test/MultiplexHarness.sol";
 
 contract MultiplexTest is Test {
@@ -29,6 +31,7 @@ contract MultiplexTest is Test {
     MockERC1155 mockERC1155;
     MockOwnable mockOwnable;
     MockCustomOwnership mockCustomOwnership;
+    MockMultiplexExtension extension;
 
     // Test data
     string constant DEFAULT_HTML_TEMPLATE = "<html>{{FILE_URIS}}</html>";
@@ -61,6 +64,7 @@ contract MultiplexTest is Test {
         // Deploy main contracts
         multiplex = new Multiplex(DEFAULT_HTML_TEMPLATE, false);
         harness = new MultiplexHarness();
+        extension = new MockMultiplexExtension(address(multiplex));
 
         // Deploy admin control and set artist as admin
         adminControl = new MockAdminControl();
@@ -79,11 +83,41 @@ contract MultiplexTest is Test {
 
         // Mint tokens to collector
         mockERC721.mint(collector); // This mints token ID 1
-        uint256 token2 = mockERC721.mint(collector); // This mints token ID 2
-        uint256 token3 = mockERC721.mint(collector); // This mints token ID 3
+        mockERC721.mint(collector); // This mints token ID 2
+        mockERC721.mint(collector); // This mints token ID 3
         mockERC1155.mint(collector, TEST_TOKEN_ID, 5);
 
         vm.stopPrank();
+
+        // Register contracts with Multiplex using the extension as operator
+        // Need to do this as the contract admin for each contract
+        vm.prank(artist, artist);
+        multiplex.registerContract(address(adminControl), address(extension));
+        
+        vm.prank(artist, artist);
+        multiplex.registerContract(address(mockERC721), address(extension));
+        
+        vm.prank(artist, artist);
+        multiplex.registerContract(address(mockERC1155), address(extension));
+        
+        vm.prank(artist, artist);
+        multiplex.registerContract(address(mockOwnable), address(0));
+
+        // Set up extension permissions (owner is already admin from constructor)
+        vm.prank(owner, owner);
+        extension.setAdmin(artist, true);
+        vm.prank(owner, owner);
+        extension.setTokenOwner(address(adminControl), collector, TEST_TOKEN_ID, true);
+
+        // Register contracts with harness using proper authorization  
+        vm.prank(artist, artist);
+        harness.registerContract(address(adminControl), address(0));
+        
+        vm.prank(artist, artist);
+        harness.registerContract(address(mockERC721), address(0));
+        
+        vm.prank(artist, artist);
+        harness.registerContract(address(mockERC1155), address(0));
 
         // Set up test URIs
         testArtistUris.push("https://artist1.com");
@@ -115,10 +149,6 @@ contract MultiplexTest is Test {
             | ARTIST_CHOOSE_THUMB | ARTIST_UPDATE_MODE | ARTIST_UPDATE_TEMPLATE | COLLECTOR_CHOOSE_URIS
             | COLLECTOR_ADD_REMOVE | COLLECTOR_CHOOSE_THUMB | COLLECTOR_UPDATE_MODE;
 
-        // Set up ownership config for ERC721
-        config.ownership.selector = bytes4(keccak256("ownerOf(uint256)"));
-        config.ownership.style = IMultiplex.OwnershipStyle.OWNER_OF;
-
         // Set up off-chain thumbnail
         config.thumbnail.kind = IMultiplex.ThumbnailKind.OFF_CHAIN;
         config.thumbnail.offChain.uris = testThumbnailUris;
@@ -141,18 +171,17 @@ contract MultiplexTest is Test {
     function test_AllCustomErrors() public {
         // Test WalletNotAdmin error
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.WalletNotAdmin.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, _createValidInitConfig(), new bytes[](0));
+        vm.expectRevert("Not admin");
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, _createValidInitConfig(), new bytes[](0));
 
         // Test NotTokenOwner error - we'll test this in the _isTokenOwner context
 
-        // Test InvalidOwnershipFunction error
+        // Test ContractNotRegistered error
         IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.ownership.selector = bytes4(0);
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidOwnershipFunction.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ContractNotRegistered.selector));
+        extension.initializeTokenData(address(stranger), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Test InvalidIndexRange error
         config = _createValidInitConfig();
@@ -160,12 +189,12 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidSelectedArtistUriIndex.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Test ArtistPermissionRevoked error
         config = _createValidInitConfig();
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         multiplex.revokeArtistPermissions(
@@ -210,55 +239,74 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_isTokenOwner_ERC721() public {
-        // Initialize token with ERC721 ownership config
+        // Test token ownership through the actual Multiplex contract
         IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.ownership.selector = bytes4(keccak256("ownerOf(uint256)"));
-        config.ownership.style = IMultiplex.OwnershipStyle.OWNER_OF;
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
+        // Test by attempting operations that require token ownership
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://test.com";
+
+        // Collector should be able to add URIs (they own the token)
         vm.prank(collector, collector);
-        assertTrue(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
 
+        // Stranger should not be able to add URIs (they don't own the token)
         vm.prank(stranger, stranger);
-        assertFalse(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
     }
 
     function test_isTokenOwner_ERC1155() public {
-        // Initialize token with ERC1155 ownership config
+        // Test token ownership through the actual Multiplex contract
         IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.ownership.selector = bytes4(keccak256("balanceOf(address,uint256)"));
-        config.ownership.style = IMultiplex.OwnershipStyle.BALANCE_OF_ERC1155;
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(mockERC1155), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC1155), TEST_TOKEN_ID, config, new bytes[](0));
 
+        // Test by attempting operations that require token ownership
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://test.com";
+
+        // Collector should be able to add URIs (they own the token)
         vm.prank(collector, collector);
-        assertTrue(harness.isTokenOwnerPublic(address(mockERC1155), TEST_TOKEN_ID));
+        multiplex.addArtworkUris(address(mockERC1155), TEST_TOKEN_ID, newUris);
 
+        // Stranger should not be able to add URIs (they don't own the token)
         vm.prank(stranger, stranger);
-        assertFalse(harness.isTokenOwnerPublic(address(mockERC1155), TEST_TOKEN_ID));
+        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.addArtworkUris(address(mockERC1155), TEST_TOKEN_ID, newUris);
     }
 
     function test_isTokenOwner_Custom() public {
-        // Initialize token with custom ownership config
+        // Test custom ownership through the actual Multiplex contract
         IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.ownership.selector = bytes4(keccak256("isOwner(address)"));
-        config.ownership.style = IMultiplex.OwnershipStyle.SIMPLE_BOOL;
 
         // Need to make artist admin of mockCustomOwnership for initialization
         vm.prank(owner, owner);
         mockCustomOwnership.setAdmin(artist, true);
 
+        // Register the custom ownership contract
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(mockCustomOwnership), TEST_TOKEN_ID, config, new bytes[](0));
+        multiplex.registerContract(address(mockCustomOwnership), address(extension));
 
+        vm.prank(artist, artist);
+        extension.initializeTokenData(address(mockCustomOwnership), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Test by attempting operations that require token ownership
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://test.com";
+
+        // Collector should be able to add URIs (they are set as the owner in mockCustomOwnership)
         vm.prank(collector, collector);
-        assertTrue(harness.isTokenOwnerPublic(address(mockCustomOwnership), TEST_TOKEN_ID));
+        multiplex.addArtworkUris(address(mockCustomOwnership), TEST_TOKEN_ID, newUris);
 
+        // Stranger should not be able to add URIs (they don't own the token)
         vm.prank(stranger, stranger);
-        assertFalse(harness.isTokenOwnerPublic(address(mockCustomOwnership), TEST_TOKEN_ID));
+        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.addArtworkUris(address(mockCustomOwnership), TEST_TOKEN_ID, newUris);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -269,12 +317,12 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.WalletNotAdmin.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        vm.expectRevert("Not admin");
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Should succeed with admin
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
     }
 
     function test_initializeTokenData_FullWorkflow() public {
@@ -282,7 +330,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -290,7 +338,7 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("TokenDataInitialized(address,uint256)"));
 
         // Verify stored data
-        (string memory metadata,,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        (string memory metadata,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
         assertEq(metadata, TEST_METADATA);
 
         IMultiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
@@ -304,7 +352,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_resolveThumbnailUri_OnChain() public {
-        // Create config with on-chain thumbnail
+        // Test on-chain thumbnail resolution through public renderImage function
         IMultiplex.InitConfig memory config = _createValidInitConfig();
         config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
@@ -313,9 +361,9 @@ contract MultiplexTest is Test {
         bytes[] memory chunks = _createOnChainThumbnailChunks();
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
 
-        string memory result = harness.resolveThumbnailUriPublic(address(adminControl), TEST_TOKEN_ID);
+        string memory result = multiplex.renderImage(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
         // Should start with "data:image/png;base64,"
         assertEq(bytes(result)[0], bytes1("d"));
@@ -325,12 +373,13 @@ contract MultiplexTest is Test {
     }
 
     function test_resolveThumbnailUri_OffChain() public {
+        // Test off-chain thumbnail resolution through public renderImage function
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        string memory result = harness.resolveThumbnailUriPublic(address(adminControl), TEST_TOKEN_ID);
+        string memory result = multiplex.renderImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, "https://thumb1.com");
     }
 
@@ -342,7 +391,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Add collector URIs
         string[] memory collectorUris = new string[](1);
@@ -360,6 +409,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_loadOnChainThumbnail_Unzipped() public {
+        // Test on-chain thumbnail loading through public renderRawImage function
         IMultiplex.InitConfig memory config = _createValidInitConfig();
         config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
@@ -368,13 +418,14 @@ contract MultiplexTest is Test {
         bytes[] memory chunks = _createOnChainThumbnailChunks();
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
 
-        bytes memory result = harness.loadOnChainThumbnailPublic(address(adminControl), TEST_TOKEN_ID);
+        bytes memory result = multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, abi.encodePacked(chunks[0], chunks[1]));
     }
 
     function test_loadOnChainThumbnail_Zipped() public {
+        // Test compressed on-chain thumbnail loading through public renderRawImage function
         bytes memory originalData = "test data to compress";
         bytes memory compressedData = LibZip.flzCompress(originalData);
 
@@ -387,9 +438,9 @@ contract MultiplexTest is Test {
         config.thumbnail.onChain.zipped = true;
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks);
 
-        bytes memory result = harness.loadOnChainThumbnailPublic(address(adminControl), TEST_TOKEN_ID);
+        bytes memory result = multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, originalData);
     }
 
@@ -401,7 +452,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(stranger, stranger);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.WalletNotAdmin.selector));
@@ -412,7 +463,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Revoke metadata update permission
         vm.prank(artist, artist);
@@ -429,7 +480,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
@@ -441,7 +492,7 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("MetadataUpdated(address,uint256)"));
 
         // Verify metadata changed
-        (string memory metadata,,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        (string memory metadata,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
         assertEq(metadata, "new metadata");
     }
 
@@ -453,7 +504,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory templateParts = new string[](1);
         templateParts[0] = "<html>new template</html>";
@@ -467,7 +518,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Revoke template update permission
         vm.prank(artist, artist);
@@ -487,7 +538,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory templateParts = new string[](1);
         templateParts[0] = "<html>new template</html>";
@@ -510,7 +561,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // First set a custom template
         string[] memory templateParts = new string[](1);
@@ -538,7 +589,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         IMultiplex.Thumbnail memory newThumbnail = config.thumbnail;
 
@@ -551,7 +602,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Revoke thumbnail update permission
         vm.prank(artist, artist);
@@ -570,7 +621,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Create new thumbnail with different URIs
         string[] memory newUris = new string[](1);
@@ -600,7 +651,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         IMultiplex.Thumbnail memory newThumbnail;
         newThumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
@@ -620,7 +671,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory newUris = new string[](1);
         newUris[0] = "https://new.com";
@@ -634,7 +685,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory newUris = new string[](1);
         newUris[0] = "https://newartist.com";
@@ -658,7 +709,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory newUris = new string[](1);
         newUris[0] = "https://newcollector.com";
@@ -677,7 +728,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~ARTIST_ADD_REMOVE;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory newUris = new string[](1);
         newUris[0] = "https://new.com";
@@ -695,7 +746,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Revoke metadata permission
         vm.prank(artist, artist);
@@ -724,7 +775,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         multiplex.revokeAllArtistPermissions(address(adminControl), TEST_TOKEN_ID);
@@ -747,7 +798,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
@@ -761,7 +812,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         uint256[] memory indices = new uint256[](1);
         indices[0] = 1; // Remove second URI
@@ -785,7 +836,7 @@ contract MultiplexTest is Test {
         config.artwork.selectedArtistUriIndex = 1; // Select second URI
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         uint256[] memory indices = new uint256[](1);
         indices[0] = 1; // Remove the selected URI
@@ -803,7 +854,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~ARTIST_ADD_REMOVE;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
@@ -821,7 +872,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(stranger, stranger);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
@@ -832,7 +883,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
@@ -852,7 +903,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidIndexRange.selector));
@@ -864,7 +915,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~ARTIST_CHOOSE_URIS;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
@@ -879,7 +930,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(stranger, stranger);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
@@ -890,7 +941,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
@@ -913,7 +964,7 @@ contract MultiplexTest is Test {
         config.thumbnail.onChain.zipped = false;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks());
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks());
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidThumbnailKind.selector));
@@ -928,7 +979,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(stranger, stranger);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
@@ -939,7 +990,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
@@ -951,7 +1002,7 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("DisplayModeUpdated(address,uint256,uint8)"));
 
         // Verify display mode changed
-        (,,,, IMultiplex.DisplayMode displayMode,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        (,,,, IMultiplex.DisplayMode displayMode,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
         assertEq(uint8(displayMode), uint8(IMultiplex.DisplayMode.HTML));
     }
 
@@ -960,7 +1011,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~ARTIST_UPDATE_MODE;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
@@ -1001,7 +1052,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string memory result = multiplex.renderImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, "https://thumb1.com");
@@ -1014,7 +1065,7 @@ contract MultiplexTest is Test {
         config.thumbnail.onChain.zipped = false;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks());
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks());
 
         bytes memory result = multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, "chunk1datachunk2data");
@@ -1024,7 +1075,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string memory result = multiplex.renderHTML(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
@@ -1036,7 +1087,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string memory result = multiplex.renderRawHTML(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, '<html>"https://artist1.com","https://artist2.com"</html>');
@@ -1047,7 +1098,7 @@ contract MultiplexTest is Test {
         config.displayMode = IMultiplex.DisplayMode.DIRECT_FILE;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string memory result = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
@@ -1060,7 +1111,7 @@ contract MultiplexTest is Test {
         config.displayMode = IMultiplex.DisplayMode.HTML;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string memory result = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
@@ -1076,7 +1127,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory uris = multiplex.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(uris.length, 2);
@@ -1088,7 +1139,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory collectorUris = new string[](1);
         collectorUris[0] = "https://collector1.com";
@@ -1105,7 +1156,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory uris = multiplex.getThumbnailUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(uris.length, 2);
@@ -1117,7 +1168,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         IMultiplex.Permissions memory permissions = multiplex.getPermissions(address(adminControl), TEST_TOKEN_ID);
         assertTrue(permissions.flags & ARTIST_UPDATE_THUMB != 0);
@@ -1128,7 +1179,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         IMultiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
         assertEq(artwork.artistUris.length, 2);
@@ -1141,7 +1192,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         (IMultiplex.ThumbnailKind kind, uint256 selectedIndex) =
             multiplex.getThumbnailInfo(address(adminControl), TEST_TOKEN_ID);
@@ -1149,22 +1200,20 @@ contract MultiplexTest is Test {
         assertEq(selectedIndex, 0);
     }
 
-    function test_getOwnershipConfig() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+    function test_contractRegistration() public view {
+        // Test contract registration functionality
+        assertTrue(multiplex.isContractOperator(address(adminControl), address(extension)));
+        assertTrue(multiplex.isContractOperator(address(mockERC721), address(extension)));
 
-        vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
-
-        IMultiplex.OwnershipConfig memory ownership = multiplex.getOwnershipConfig(address(adminControl), TEST_TOKEN_ID);
-        assertEq(ownership.selector, bytes4(keccak256("ownerOf(uint256)")));
-        assertEq(uint8(ownership.style), uint8(IMultiplex.OwnershipStyle.OWNER_OF));
+        // Test unregistered contract
+        assertFalse(multiplex.isContractOperator(address(stranger), address(stranger)));
     }
 
     function test_getTokenHtmlTemplate() public {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Initially should return empty string (using default)
         string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
@@ -1185,7 +1234,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string memory combined = multiplex.getCombinedArtworkUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(combined, '"https://artist1.com","https://artist2.com"');
@@ -1195,7 +1244,7 @@ contract MultiplexTest is Test {
                     20. HELPER FUNCTIONS TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_encodeDataUri() public {
+    function test_encodeDataUri() public view {
         string memory mimeType = "image/png";
         bytes memory data = "test data";
 
@@ -1203,7 +1252,7 @@ contract MultiplexTest is Test {
         assertEq(result, "data:image/png;base64,dGVzdCBkYXRh");
     }
 
-    function test_appendJsonField() public {
+    function test_appendJsonField() public view {
         string memory json = '"name":"test"';
         string memory field = '"description":"desc"';
 
@@ -1225,7 +1274,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidMetadata.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
     }
 
     function test_InvalidArtworkUris() public {
@@ -1234,7 +1283,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidArtworkUris.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
     }
 
     function test_InvalidMimeType() public {
@@ -1243,7 +1292,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidMimeType.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
     }
 
     function test_InvalidFileHash() public {
@@ -1252,7 +1301,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidFileHash.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
     }
 
     function test_OnChainThumbnailEmpty() public {
@@ -1262,7 +1311,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.OnChainThumbnailEmpty.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
     }
 
     function test_InvalidSelectedThumbnailUriIndex() public {
@@ -1271,14 +1320,14 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidSelectedThumbnailUriIndex.selector));
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
     }
 
     function test_NotTokenOwnerOrAdmin() public {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory uris = new string[](1);
         uris[0] = "test";
@@ -1293,7 +1342,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_ADD_REMOVE;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
         string[] memory uris = new string[](1);
         uris[0] = "test";
@@ -1308,33 +1357,40 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_NotTokenOwner() public {
-        // Test _isTokenOwner returns false when user doesn't own token
+        // Test that non-token-owners cannot perform token owner operations
         IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.ownership.selector = bytes4(keccak256("ownerOf(uint256)"));
-        config.ownership.style = IMultiplex.OwnershipStyle.OWNER_OF;
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
-        // Test with the adminControl which doesn't have ownerOf - should return false
+        // Test that stranger cannot perform token owner operations
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://test.com";
+
         vm.prank(stranger, stranger);
-        assertFalse(harness.isTokenOwnerPublic(address(adminControl), TEST_TOKEN_ID));
+        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
     }
 
-    function test_isTokenOwner_BalanceOfERC721() public {
-        // Test BALANCE_OF_ERC721 ownership style
+    function test_isTokenOwner_WithERC721Balance() public {
+        // Test ERC721 token ownership through balance-based operations
         IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.ownership.selector = bytes4(keccak256("balanceOf(address)"));
-        config.ownership.style = IMultiplex.OwnershipStyle.BALANCE_OF_ERC721;
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
+        // Test by attempting operations that require token ownership
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://balance-test.com";
+
+        // Collector should be able to add URIs (they own the token)
         vm.prank(collector, collector);
-        assertTrue(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
 
-        vm.prank(stranger, stranger);
-        assertFalse(harness.isTokenOwnerPublic(address(mockERC721), TEST_TOKEN_ID));
+        // Verify the URI was added
+        string[] memory collectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        assertEq(collectorUris.length, 1);
+        assertEq(collectorUris[0], "https://balance-test.com");
     }
 
     function test_setSelectedUri_CollectorNotAffected() public {
@@ -1342,7 +1398,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Add collector URIs
         string[] memory collectorUris = new string[](2);
@@ -1370,7 +1426,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Add collector URIs
         string[] memory collectorUris = new string[](3);
@@ -1402,7 +1458,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         // Test each permission individually
         vm.prank(artist, artist);
@@ -1438,7 +1494,7 @@ contract MultiplexTest is Test {
             // test
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), 2, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), 2, config, new bytes[](0));
 
         // Now test that the artist cannot use setSelectedThumbnailUri without permission
         vm.prank(artist, artist);
@@ -1454,7 +1510,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_CHOOSE_URIS;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.prank(collector, collector);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.CollectorPermissionDenied.selector));
@@ -1464,7 +1520,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_CHOOSE_THUMB;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), 2, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), 2, config, new bytes[](0));
 
         vm.prank(collector, collector);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.CollectorPermissionDenied.selector));
@@ -1474,7 +1530,7 @@ contract MultiplexTest is Test {
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_UPDATE_MODE;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(mockERC721), 3, config, new bytes[](0));
+        extension.initializeTokenData(address(mockERC721), 3, config, new bytes[](0));
 
         vm.prank(collector, collector);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.CollectorPermissionDenied.selector));
@@ -1487,7 +1543,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(logs.length, 1);
@@ -1540,7 +1596,7 @@ contract MultiplexTest is Test {
         IMultiplex.InitConfig memory config = _createValidInitConfig(); // Uses OFF_CHAIN by default
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidThumbnailKind.selector));
         multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
@@ -1550,13 +1606,13 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidIndexRange.selector));
-        multiplex.initializeTokenData(address(adminControl), 999, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), 999, config, new bytes[](0));
 
         // Test InvalidIndexRange for removeArtworkUris
         config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), 998, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), 998, config, new bytes[](0));
 
         uint256[] memory invalidIndices = new uint256[](1);
         invalidIndices[0] = 999; // Out of bounds
@@ -1580,7 +1636,7 @@ contract MultiplexTest is Test {
         config.displayMode = IMultiplex.DisplayMode.DIRECT_FILE;
 
         vm.prank(artist, artist);
-        multiplex.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
 
         string memory metadata = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(metadata).length > 0);
@@ -1594,16 +1650,23 @@ contract MultiplexTest is Test {
     }
 
     function test_EdgeCasePermutations() public {
-        // Test with custom ownership that might fail
+        // Test with unregistered contract - should fail
         IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.ownership.selector = bytes4(keccak256("nonExistentFunction(address)"));
-        config.ownership.style = IMultiplex.OwnershipStyle.SIMPLE_BOOL;
 
         vm.prank(artist, artist);
-        harness.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ContractNotRegistered.selector));
+        extension.initializeTokenData(address(stranger), TEST_TOKEN_ID, config, new bytes[](0));
 
-        // This should return false because the function doesn't exist
-        vm.prank(collector, collector);
-        assertFalse(harness.isTokenOwnerPublic(address(mockCustomOwnership), TEST_TOKEN_ID));
+        // Test ownership check with different contract
+        vm.prank(artist, artist);
+        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0));
+
+        // Test that stranger cannot perform token owner operations on adminControl
+        string[] memory newUris = new string[](1);
+        newUris[0] = "https://test.com";
+
+        vm.prank(stranger, stranger);
+        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
+        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
     }
 }
