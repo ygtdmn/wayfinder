@@ -586,7 +586,7 @@ export default function Mint() {
 				{/* Step 1: Artwork */}
 				<div className="card">
 					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						1. Upload Your Artwork
+						Upload Your Artwork
 					</h3>
 					<div
 						className={`upload-zone ${artworkFile ? "active" : ""}`}
@@ -662,7 +662,7 @@ export default function Mint() {
 				{/* Step 2: Details */}
 				<div className="card">
 					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						2. Artwork Details
+						Artwork Details
 					</h3>
 					<div className="space-y-4">
 						<div>
@@ -754,7 +754,7 @@ export default function Mint() {
 				{/* Step 3: Artwork Options */}
 				<div className="card">
 					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						3. Artwork Options
+						Artwork Options
 					</h3>
 					<div className="space-y-4">
 						<div>
@@ -782,15 +782,22 @@ export default function Mint() {
 								onChange={(e) => setArtistArtworkUris(e.target.value)}
 							/>
 							<p className="help-text">
-								One URI per line. Collectors can select from these artworks if allowed.
+								One URI per line. Collectors can select from these artworks if
+								allowed.
 							</p>
-							
+
 							{/* File Upload Suggestions */}
 							<div className="mt-3 p-3 bg-zinc-800/30 border border-zinc-700/50 rounded-lg">
-								<h5 className="text-sm font-medium text-zinc-300 mb-2">Suggested upload options, the more the better:</h5>
+								<h5 className="text-sm font-medium text-zinc-300 mb-2">
+									Suggested upload options, the more the better:
+								</h5>
 								<div className="grid grid-cols-2 gap-1 text-xs">
-									<a href="https://ardrive.net" target="_blank" rel="noopener noreferrer" 
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+									<a
+										href="https://ardrive.net"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
+									>
 										<span>ArDrive (Arweave)</span>
 										<span className="text-orange-400 font-medium relative group">
 											PAID
@@ -799,8 +806,12 @@ export default function Mint() {
 											</div>
 										</span>
 									</a>
-									<a href="https://web3.storage" target="_blank" rel="noopener noreferrer" 
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+									<a
+										href="https://web3.storage"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
+									>
 										<span>Web3.Storage (IPFS)</span>
 										<span className="text-blue-400 font-medium relative group">
 											FREE+
@@ -809,8 +820,12 @@ export default function Mint() {
 											</div>
 										</span>
 									</a>
-									<a href="https://archive.org/create/" target="_blank" rel="noopener noreferrer" 
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+									<a
+										href="https://archive.org/create/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
+									>
 										<span>Internet Archive</span>
 										<span className="text-green-400 font-medium relative group">
 											FREE
@@ -819,8 +834,12 @@ export default function Mint() {
 											</div>
 										</span>
 									</a>
-									<a href="https://github.com" target="_blank" rel="noopener noreferrer" 
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+									<a
+										href="https://github.com"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
+									>
 										<span>GitHub (raw links)</span>
 										<span className="text-blue-400 font-medium relative group">
 											FREE+
@@ -829,8 +848,12 @@ export default function Mint() {
 											</div>
 										</span>
 									</a>
-									<a href="https://developers.cloudflare.com/r2/" target="_blank" rel="noopener noreferrer" 
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+									<a
+										href="https://developers.cloudflare.com/r2/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
+									>
 										<span>Cloudflare R2</span>
 										<span className="text-blue-400 font-medium relative group">
 											FREE+
@@ -839,8 +862,12 @@ export default function Mint() {
 											</div>
 										</span>
 									</a>
-									<a href="https://aws.amazon.com/s3/" target="_blank" rel="noopener noreferrer" 
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+									<a
+										href="https://aws.amazon.com/s3/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
+									>
 										<span>AWS S3</span>
 										<span className="text-blue-400 font-medium relative group">
 											FREE+
@@ -939,7 +966,8 @@ export default function Mint() {
 									onChange={(e) => setArtistThumbnailUris(e.target.value)}
 								/>
 								<p className="help-text">
-									One URI per line. Collectors can select from these thumbnails if allowed.
+									One URI per line. Collectors can select from these thumbnails
+									if allowed.
 								</p>
 							</div>
 						)}
@@ -1294,19 +1322,23 @@ export default function Mint() {
 				{writeError && (
 					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
 						<div className="text-center py-4">
-							<h3 className="text-lg text-red-300 mb-2">Transaction Error</h3>
-							<p className="text-red-200 text-sm mb-2">{writeError.message}</p>
-							<details className="text-left text-xs text-red-300">
-								<summary className="cursor-pointer">Show details</summary>
-								<pre className="mt-2 p-2 bg-red-900 bg-opacity-20 rounded overflow-auto">
-									{JSON.stringify(
-										writeError,
-										(_, value) =>
-											typeof value === "bigint" ? value.toString() : value,
-										2
-									)}
-								</pre>
-							</details>
+							<h3 className="text-lg text-red-300 mb-2">Transaction Failed</h3>
+							<p className="text-red-200 text-sm mb-4">
+								{writeError.message.includes("User rejected")
+									? "Transaction was rejected by user"
+									: writeError.message.split(".")[0] +
+									  (writeError.message.includes(".") ? "." : "")}
+							</p>
+							{writeError.message.length > 100 && (
+								<details className="text-left text-xs text-red-300">
+									<summary className="cursor-pointer hover:text-red-200">
+										Show full error
+									</summary>
+									<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
+										<p className="break-words">{writeError.message}</p>
+									</div>
+								</details>
+							)}
 						</div>
 					</div>
 				)}
@@ -1314,8 +1346,21 @@ export default function Mint() {
 				{receiptError && (
 					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
 						<div className="text-center py-4">
-							<h3 className="text-lg text-red-300 mb-2">Receipt Error</h3>
-							<p className="text-red-200 text-sm">{receiptError.message}</p>
+							<h3 className="text-lg text-red-300 mb-2">Transaction Failed</h3>
+							<p className="text-red-200 text-sm mb-4">
+								{receiptError.message.split(".")[0] +
+									(receiptError.message.includes(".") ? "." : "")}
+							</p>
+							{receiptError.message.length > 100 && (
+								<details className="text-left text-xs text-red-300">
+									<summary className="cursor-pointer hover:text-red-200">
+										Show full error
+									</summary>
+									<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
+										<p className="break-words">{receiptError.message}</p>
+									</div>
+								</details>
+							)}
 						</div>
 					</div>
 				)}

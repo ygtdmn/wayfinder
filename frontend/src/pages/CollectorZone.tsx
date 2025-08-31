@@ -113,8 +113,6 @@ export default function CollectorZone() {
 		query: { enabled: true },
 	});
 
-
-
 	// Initialize data from contract when data loads
 	useEffect(() => {
 		if (tokenData) {
@@ -129,6 +127,8 @@ export default function CollectorZone() {
 	}, [tokenData, artwork, thumbnailInfo]);
 
 	// Derived permissions from contract data
+	const isOnChainThumbnail = thumbnailInfo ? thumbnailInfo[0] === 0 : true;
+	
 	const permissionsData = useMemo(() => {
 		const flags = permissions ? Number(permissions.flags) : 0;
 		return {
@@ -140,7 +140,13 @@ export default function CollectorZone() {
 		};
 	}, [permissions, displayMode]);
 
-	const { allowToggleDisplay, allowSelectArtwork, allowSelectThumbnail, allowAddArtwork, isHtmlMode } = permissionsData;
+	const {
+		allowToggleDisplay,
+		allowSelectArtwork,
+		allowSelectThumbnail,
+		allowAddArtwork,
+		isHtmlMode,
+	} = permissionsData;
 
 	// Debug logging
 	useEffect(() => {
@@ -291,7 +297,7 @@ export default function CollectorZone() {
 				{/* Token Selection */}
 				<div className="card">
 					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						1. Select Your Token
+						Select Your Token
 					</h3>
 					<div className="space-y-4">
 						<div>
@@ -335,14 +341,16 @@ export default function CollectorZone() {
 										Select Artwork:{" "}
 										{allowSelectArtwork ? "Allowed" : "Disabled"}
 									</span>
-									<span
-										className={`${
-											allowSelectThumbnail ? "text-green-400" : "text-red-400"
-										}`}
-									>
-										Select Thumbnail:{" "}
-										{allowSelectThumbnail ? "Allowed" : "Disabled"}
-									</span>
+									{!isOnChainThumbnail && (
+										<span
+											className={`${
+												allowSelectThumbnail ? "text-green-400" : "text-red-400"
+											}`}
+										>
+											Select Thumbnail:{" "}
+											{allowSelectThumbnail ? "Allowed" : "Disabled"}
+										</span>
+									)}
 									<span
 										className={`${
 											allowAddArtwork ? "text-green-400" : "text-red-400"
@@ -382,7 +390,7 @@ export default function CollectorZone() {
 				{tokenData && allowToggleDisplay ? (
 					<div className="card">
 						<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-							2. Display Mode
+							Display Mode
 						</h3>
 						<div className="space-y-4">
 							<div>
@@ -390,9 +398,7 @@ export default function CollectorZone() {
 								<select
 									className="input-field"
 									value={displayMode}
-									onChange={(e) =>
-										setDisplayMode(Number(e.target.value))
-									}
+									onChange={(e) => setDisplayMode(Number(e.target.value))}
 								>
 									<option value={0}>Image</option>
 									<option value={1}>Interactive HTML</option>
@@ -407,7 +413,9 @@ export default function CollectorZone() {
 								className="btn-primary"
 								disabled={isPending || isConfirming}
 							>
-								{isPending || isConfirming ? "Updating..." : "Update Display Mode"}
+								{isPending || isConfirming
+									? "Updating..."
+									: "Update Display Mode"}
 							</button>
 						</div>
 					</div>
@@ -416,12 +424,13 @@ export default function CollectorZone() {
 				{/* Artwork Selection */}
 				{tokenData &&
 				allowSelectArtwork &&
+				!isHtmlMode &&
 				artistArtworkUris &&
 				Array.isArray(artistArtworkUris) &&
 				artistArtworkUris.length > 0 ? (
 					<div className="card">
 						<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-							3. Select Artwork
+							Select Artwork
 						</h3>
 						<div className="space-y-4">
 							<div className="space-y-2">
@@ -431,42 +440,39 @@ export default function CollectorZone() {
 								{artistArtworkUris.map((uri: string, index: number) => (
 									<div
 										key={index}
-										className="flex gap-2 items-center p-2 bg-zinc-800 rounded"
+										onClick={() => setSelectedArtworkIndex(index)}
+										className={`flex gap-2 items-center p-3 rounded cursor-pointer transition-all duration-200 ${
+											selectedArtworkIndex === index
+												? "bg-blue-600 bg-opacity-20 border-2 border-blue-500 border-opacity-50"
+												: "bg-zinc-800 hover:bg-zinc-700 border-2 border-transparent"
+										}`}
 									>
-										<input
-											type="radio"
-											name="artwork"
-											value={index + 1}
-											checked={selectedArtworkIndex === index + 1}
-											onChange={() => setSelectedArtworkIndex(index + 1)}
-											className="mr-2"
-										/>
+										<div
+											className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+												selectedArtworkIndex === index
+													? "border-blue-400 bg-blue-400"
+													: "border-zinc-500"
+											}`}
+										>
+											{selectedArtworkIndex === index && (
+												<div className="w-2 h-2 rounded-full bg-white"></div>
+											)}
+										</div>
 										<span className="flex-1 text-sm font-mono text-zinc-300 break-all">
-											{uri}
+											{index}: {uri}
 										</span>
 									</div>
 								))}
-								<div className="flex gap-2 items-center p-2 bg-zinc-800 rounded">
-									<input
-										type="radio"
-										name="artwork"
-										value={0}
-										checked={selectedArtworkIndex === 0}
-										onChange={() => setSelectedArtworkIndex(0)}
-										className="mr-2"
-									/>
-									<span className="flex-1 text-sm text-zinc-300">
-										None selected
-									</span>
-								</div>
 							</div>
 							<button
 								type="button"
-																	onClick={updateArtworkSelection}
+								onClick={updateArtworkSelection}
 								className="btn-primary"
 								disabled={isPending || isConfirming}
 							>
-								{isPending || isConfirming ? "Updating..." : "Update Artwork Selection"}
+								{isPending || isConfirming
+									? "Updating..."
+									: "Update Artwork Selection"}
 							</button>
 						</div>
 					</div>
@@ -480,7 +486,7 @@ export default function CollectorZone() {
 				artistThumbnailUris.length > 0 ? (
 					<div className="card">
 						<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-							4. Select Thumbnail
+							Select Thumbnail
 						</h3>
 						<div className="space-y-4">
 							<div className="space-y-2">
@@ -490,42 +496,39 @@ export default function CollectorZone() {
 								{artistThumbnailUris.map((uri: string, index: number) => (
 									<div
 										key={index}
-										className="flex gap-2 items-center p-2 bg-zinc-800 rounded"
+										onClick={() => setSelectedThumbnailIndex(index)}
+										className={`flex gap-2 items-center p-3 rounded cursor-pointer transition-all duration-200 ${
+											selectedThumbnailIndex === index
+												? "bg-blue-600 bg-opacity-20 border-2 border-blue-500 border-opacity-50"
+												: "bg-zinc-800 hover:bg-zinc-700 border-2 border-transparent"
+										}`}
 									>
-										<input
-											type="radio"
-											name="thumbnail"
-											value={index + 1}
-											checked={selectedThumbnailIndex === index + 1}
-											onChange={() => setSelectedThumbnailIndex(index + 1)}
-											className="mr-2"
-										/>
+										<div
+											className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+												selectedThumbnailIndex === index
+													? "border-blue-400 bg-blue-400"
+													: "border-zinc-500"
+											}`}
+										>
+											{selectedThumbnailIndex === index && (
+												<div className="w-2 h-2 rounded-full bg-white"></div>
+											)}
+										</div>
 										<span className="flex-1 text-sm font-mono text-zinc-300 break-all">
-											{uri}
+											{index}: {uri}
 										</span>
 									</div>
 								))}
-								<div className="flex gap-2 items-center p-2 bg-zinc-800 rounded">
-									<input
-										type="radio"
-										name="thumbnail"
-										value={0}
-										checked={selectedThumbnailIndex === 0}
-										onChange={() => setSelectedThumbnailIndex(0)}
-										className="mr-2"
-									/>
-									<span className="flex-1 text-sm text-zinc-300">
-										Use on-chain thumbnail
-									</span>
-								</div>
 							</div>
 							<button
 								type="button"
-																	onClick={updateThumbnailSelection}
+								onClick={updateThumbnailSelection}
 								className="btn-primary"
 								disabled={isPending || isConfirming}
 							>
-								{isPending || isConfirming ? "Updating..." : "Update Thumbnail Selection"}
+								{isPending || isConfirming
+									? "Updating..."
+									: "Update Thumbnail Selection"}
 							</button>
 						</div>
 					</div>
@@ -535,7 +538,7 @@ export default function CollectorZone() {
 				{tokenData && allowAddArtwork && isHtmlMode ? (
 					<div className="card">
 						<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-							5. Add Your Artwork
+							Add Your Artwork
 						</h3>
 						<div className="space-y-4">
 							<div className="flex gap-2">
@@ -561,7 +564,7 @@ export default function CollectorZone() {
 							{collectorArtworkUris && collectorArtworkUris.length > 0 ? (
 								<div className="space-y-2">
 									<p className="text-sm text-zinc-400">Your artwork URIs:</p>
-									{(collectorArtworkUris).map((uri: string, index: number) => (
+									{collectorArtworkUris.map((uri: string, index: number) => (
 										<div
 											key={index}
 											className="flex gap-2 items-center p-2 bg-zinc-800 rounded"
@@ -581,7 +584,7 @@ export default function CollectorZone() {
 				{tokenData &&
 				!allowToggleDisplay &&
 				!allowSelectArtwork &&
-				!allowSelectThumbnail &&
+				(isOnChainThumbnail || !allowSelectThumbnail) &&
 				!allowAddArtwork ? (
 					<div className="card bg-zinc-900 border-zinc-700">
 						<div className="flex items-center gap-3">

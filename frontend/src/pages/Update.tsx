@@ -23,10 +23,10 @@ export default function Update() {
 	const navigate = useNavigate();
 	const creator = (sp.get("creator") || "") as Address;
 
-  // Token to update
+	// Token to update
 	const [tokenId, setTokenId] = useState("");
 
-  // Metadata
+	// Metadata
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [externalUrl, setExternalUrl] = useState("");
@@ -55,13 +55,29 @@ export default function Update() {
 	const [selectedArtworkIndex, setSelectedArtworkIndex] = useState(0);
 	const [selectedThumbnailIndex, setSelectedThumbnailIndex] = useState(0);
 
-  	// Transaction state
-	const { data: hash, isPending, writeContract, error: writeError } = useWriteContract();
-	const { isLoading: isConfirming, isSuccess, error: receiptError } = useWaitForTransactionReceipt({
+	// Permission revocation state
+	const [revokeUpdateThumbnail, setRevokeUpdateThumbnail] = useState(false);
+	const [revokeUpdateMetadata, setRevokeUpdateMetadata] = useState(false);
+	const [revokeChooseUris, setRevokeChooseUris] = useState(false);
+	const [revokeAddRemoveUris, setRevokeAddRemoveUris] = useState(false);
+	const [revokeChooseThumbnail, setRevokeChooseThumbnail] = useState(false);
+	const [revokeUpdateDisplayMode, setRevokeUpdateDisplayMode] = useState(false);
+	const [revokeUpdateTemplate, setRevokeUpdateTemplate] = useState(false);
+
+	// Transaction state
+	const {
+		data: hash,
+		isPending,
+		writeContract,
+		error: writeError,
+	} = useWriteContract();
+	const {
+		isLoading: isConfirming,
+		isSuccess,
+		error: receiptError,
+	} = useWaitForTransactionReceipt({
 		hash,
 	});
-
-
 
 	// Read token data from contract
 	const {
@@ -174,20 +190,40 @@ export default function Update() {
 
 	// Derived state from contract data
 	const isOnChainThumbnail = thumbnailInfo ? thumbnailInfo[0] === 0 : true;
-	const hasArtistUpdateMetaPermission = permissions ? (Number(permissions.flags) & (1 << 1)) !== 0 : false;
-	const hasArtistUpdateThumbPermission = permissions ? (Number(permissions.flags) & (1 << 0)) !== 0 : false;
-	const hasArtistUpdateTemplatePermission = permissions ? (Number(permissions.flags) & (1 << 6)) !== 0 : false;
+	const hasArtistUpdateMetaPermission = permissions
+		? (Number(permissions.flags) & (1 << 1)) !== 0
+		: false;
+	const hasArtistUpdateThumbPermission = permissions
+		? (Number(permissions.flags) & (1 << 0)) !== 0
+		: false;
+	const hasArtistUpdateTemplatePermission = permissions
+		? (Number(permissions.flags) & (1 << 6)) !== 0
+		: false;
 
-  const prepareThumbnail = useCallback(async (file: File) => {
+	// Additional permission checks for UI
+	const hasArtistChooseUrisPermission = permissions
+		? (Number(permissions.flags) & (1 << 2)) !== 0
+		: false;
+	const hasArtistAddRemovePermission = permissions
+		? (Number(permissions.flags) & (1 << 3)) !== 0
+		: false;
+	const hasArtistChooseThumbPermission = permissions
+		? (Number(permissions.flags) & (1 << 4)) !== 0
+		: false;
+	const hasArtistUpdateModePermission = permissions
+		? (Number(permissions.flags) & (1 << 5)) !== 0
+		: false;
+
+	const prepareThumbnail = useCallback(async (file: File) => {
 		setThumbnailFile(file);
 		setThumbMime(file.type);
-    
-    // Create preview
+
+		// Create preview
 		const reader = new FileReader();
 		reader.onload = (e) => setThumbnailPreview(e.target?.result as string);
 		reader.readAsDataURL(file);
-    
-    // Compress and chunk
+
+		// Compress and chunk
 		const buffer = await file.arrayBuffer();
 		const compressed = fastlz.compress(new Uint8Array(buffer));
 		setThumbLength(buffer.byteLength);
@@ -213,7 +249,7 @@ export default function Update() {
 		reader.onload = (e) => {
 			const content = e.target?.result as string;
 			setHtmlTemplateContent(content);
-			
+
 			// For HTML templates, we store them as string chunks (not compressed)
 			const CHUNK_SIZE = 20 * 1024; // 20KB per chunk for text
 			const chunks: string[] = [];
@@ -225,7 +261,7 @@ export default function Update() {
 		reader.readAsText(file);
 	}, []);
 
-  const handleAddAttribute = () => {
+	const handleAddAttribute = () => {
 		setAttributes([...attributes, { trait_type: "", value: "" }]);
 	};
 
@@ -240,16 +276,18 @@ export default function Update() {
 		setAttributes(newAttributes);
 	};
 
-  const handleRemoveAttribute = (index: number) => {
+	const handleRemoveAttribute = (index: number) => {
 		setAttributes(attributes.filter((_, i) => i !== index));
 	};
 
-  const metadataJson = useMemo(() => {
+	const metadataJson = useMemo(() => {
 		const fields: string[] = [];
 		if (name) fields.push(`"name":${JSON.stringify(name)}`);
-		if (description) fields.push(`"description":${JSON.stringify(description)}`);
-		if (externalUrl) fields.push(`"external_url":${JSON.stringify(externalUrl)}`);
-    if (attributes.length > 0) {
+		if (description)
+			fields.push(`"description":${JSON.stringify(description)}`);
+		if (externalUrl)
+			fields.push(`"external_url":${JSON.stringify(externalUrl)}`);
+		if (attributes.length > 0) {
 			const validAttrs = attributes
 				.filter((a) => a.trait_type && a.value !== "")
 				.map((attr) => {
@@ -275,7 +313,13 @@ export default function Update() {
 		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
 		functionName: "updateMetadata",
 		args: [creator, BigInt(tokenId || 0), metadataJson],
-		query: { enabled: !!creator && !!tokenId && !!metadataJson && hasArtistUpdateMetaPermission },
+		query: {
+			enabled:
+				!!creator &&
+				!!tokenId &&
+				!!metadataJson &&
+				hasArtistUpdateMetaPermission,
+		},
 	});
 
 	const { error: simulateDisplayError } = useSimulateContract({
@@ -291,7 +335,49 @@ export default function Update() {
 		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
 		functionName: "updateHtmlTemplate",
 		args: [creator, BigInt(tokenId || 0), htmlTemplateChunks, false],
-		query: { enabled: !!creator && !!tokenId && htmlTemplateChunks.length > 0 && hasArtistUpdateTemplatePermission },
+		query: {
+			enabled:
+				!!creator &&
+				!!tokenId &&
+				htmlTemplateChunks.length > 0 &&
+				hasArtistUpdateTemplatePermission,
+		},
+	});
+
+	// Check if any permissions are selected for revocation
+	const hasPermissionsToRevoke =
+		revokeUpdateThumbnail ||
+		revokeUpdateMetadata ||
+		revokeChooseUris ||
+		revokeAddRemoveUris ||
+		revokeChooseThumbnail ||
+		revokeUpdateDisplayMode ||
+		revokeUpdateTemplate;
+
+	const { error: simulateRevokePermissionsError } = useSimulateContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "revokeArtistPermissions",
+		args: [
+			creator,
+			BigInt(tokenId || 0),
+			revokeUpdateThumbnail,
+			revokeUpdateMetadata,
+			revokeChooseUris,
+			revokeAddRemoveUris,
+			revokeChooseThumbnail,
+			revokeUpdateDisplayMode,
+			revokeUpdateTemplate,
+		],
+		query: { enabled: !!creator && !!tokenId && hasPermissionsToRevoke },
+	});
+
+	const { error: simulateRevokeAllPermissionsError } = useSimulateContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "revokeAllArtistPermissions",
+		args: [creator, BigInt(tokenId || 0)],
+		query: { enabled: !!creator && !!tokenId },
 	});
 
 	// Contract interaction functions
@@ -323,7 +409,12 @@ export default function Update() {
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
 			functionName: "updateThumbnail",
-			args: [creator, BigInt(tokenId), thumbnail, thumbChunks as readonly `0x${string}`[]],
+			args: [
+				creator,
+				BigInt(tokenId),
+				thumbnail,
+				thumbChunks as readonly `0x${string}`[],
+			],
 		});
 	};
 
@@ -387,6 +478,35 @@ export default function Update() {
 		});
 	};
 
+	const revokeSelectedPermissions = () => {
+		if (!hasPermissionsToRevoke) return;
+		writeContract({
+			abi: multiplexAbi,
+			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+			functionName: "revokeArtistPermissions",
+			args: [
+				creator,
+				BigInt(tokenId),
+				revokeUpdateThumbnail,
+				revokeUpdateMetadata,
+				revokeChooseUris,
+				revokeAddRemoveUris,
+				revokeChooseThumbnail,
+				revokeUpdateDisplayMode,
+				revokeUpdateTemplate,
+			],
+		});
+	};
+
+	const revokeAllPermissions = () => {
+		writeContract({
+			abi: multiplexAbi,
+			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+			functionName: "revokeAllArtistPermissions",
+			args: [creator, BigInt(tokenId)],
+		});
+	};
+
 	// Direct form submission handlers
 	const onSubmitMetadata = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -403,6 +523,16 @@ export default function Update() {
 		updateHtmlTemplate();
 	};
 
+	const onSubmitRevokePermissions = (e: React.FormEvent) => {
+		e.preventDefault();
+		revokeSelectedPermissions();
+	};
+
+	const onSubmitRevokeAllPermissions = (e: React.FormEvent) => {
+		e.preventDefault();
+		revokeAllPermissions();
+	};
+
 	// Effect to refetch data after successful transactions
 	useEffect(() => {
 		if (isSuccess) {
@@ -412,24 +542,24 @@ export default function Update() {
 		}
 	}, [isSuccess, refetchTokenData, refetchArtworkUris, refetchThumbnailUris]);
 
-  if (!creator) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-zinc-400">Please select a collection first.</p>
+	if (!creator) {
+		return (
+			<div className="text-center py-12">
+				<p className="text-zinc-400">Please select a collection first.</p>
 				<button
 					onClick={() => navigate("/collections")}
 					className="btn-primary mt-4"
 				>
-          Go to Collections
-        </button>
-      </div>
+					Go to Collections
+				</button>
+			</div>
 		);
-  }
+	}
 
-  if (isSuccess) {
-    return (
-      <div className="max-w-2xl mx-auto text-center py-12 animate-fade-in">
-        <div className="inline-flex items-center justify-center w-16 h-16 bg-success bg-opacity-10 mb-4">
+	if (isSuccess) {
+		return (
+			<div className="max-w-2xl mx-auto text-center py-12 animate-fade-in">
+				<div className="inline-flex items-center justify-center w-16 h-16 bg-success bg-opacity-10 mb-4">
 					<svg
 						className="w-8 h-8 text-success"
 						fill="none"
@@ -442,66 +572,66 @@ export default function Update() {
 							strokeWidth={2}
 							d="M5 13l4 4L19 7"
 						/>
-          </svg>
-        </div>
+					</svg>
+				</div>
 				<h2 className="text-2xl font-display font-bold text-zinc-100 mb-2">
 					Artwork Updated!
 				</h2>
 				<p className="text-zinc-400 mb-8">
 					Token #{tokenId} has been successfully updated.
 				</p>
-        <div className="flex gap-3 justify-center">
+				<div className="flex gap-3 justify-center">
 					<button
 						onClick={() => navigate("/collections")}
 						className="btn-secondary"
 					>
-            Back to Collections
-          </button>
+						Back to Collections
+					</button>
 					<button
 						onClick={() => window.location.reload()}
 						className="btn-primary"
 					>
-            Update Another
-          </button>
-        </div>
-      </div>
+						Update Another
+					</button>
+				</div>
+			</div>
 		);
-  }
+	}
 
-  return (
-    <div className="min-h-screen">
-      <div className="flex justify-between items-center p-8 border-b border-zinc-800">
+	return (
+		<div className="min-h-screen">
+			<div className="flex justify-between items-center p-8 border-b border-zinc-800">
 				<Link to="/" className="text-2xl font-black text-zinc-100">
 					multiplex
 				</Link>
-        <ConnectButton />
-      </div>
+				<ConnectButton />
+			</div>
 			<div className="max-w-4xl mx-auto px-8 py-8 space-y-8 animate-fade-in">
-      <div>
+				<div>
 					<h2 className="text-2xl font-display font-bold text-zinc-100">
 						Update Artwork
 					</h2>
 					<p className="text-zinc-400 mt-1">
 						Manage and update existing token properties
 					</p>
-      </div>
+				</div>
 
-      {/* Token Selection */}
-      <div className="card">
+				{/* Token Selection */}
+				<div className="card">
 					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						1. Select Token
+						Select Token
 					</h3>
-        <div>
-          <label className="label">Token ID *</label>
-          <input
-            className="input-field"
-            placeholder="Enter token ID number"
-            value={tokenId}
-            onChange={(e) => setTokenId(e.target.value)}
-            required
-          />
-          <p className="help-text">The ID of the token you want to update</p>
-        </div>
+					<div>
+						<label className="label">Token ID *</label>
+						<input
+							className="input-field"
+							placeholder="Enter token ID number"
+							value={tokenId}
+							onChange={(e) => setTokenId(e.target.value)}
+							required
+						/>
+						<p className="help-text">The ID of the token you want to update</p>
+					</div>
 
 					{
 						(tokenData && (
@@ -510,17 +640,27 @@ export default function Update() {
 								<div className="flex gap-4 mt-2">
 									<span
 										className={`text-sm ${
-											!hasArtistUpdateMetaPermission ? "text-red-400" : "text-green-400"
+											!hasArtistUpdateMetaPermission
+												? "text-red-400"
+												: "text-green-400"
 										}`}
 									>
-										Metadata: {!hasArtistUpdateMetaPermission ? "No Permission" : "Can Update"}
+										Metadata:{" "}
+										{!hasArtistUpdateMetaPermission
+											? "No Permission"
+											: "Can Update"}
 									</span>
 									<span
 										className={`text-sm ${
-											!hasArtistUpdateThumbPermission ? "text-red-400" : "text-green-400"
+											!hasArtistUpdateThumbPermission
+												? "text-red-400"
+												: "text-green-400"
 										}`}
 									>
-										Thumbnail: {!hasArtistUpdateThumbPermission ? "No Permission" : "Can Update"}
+										Thumbnail:{" "}
+										{!hasArtistUpdateThumbPermission
+											? "No Permission"
+											: "Can Update"}
 									</span>
 									<span className="text-sm text-zinc-400">
 										Thumbnail Type:{" "}
@@ -557,165 +697,174 @@ export default function Update() {
 							</p>
 						)}
 					</div>
-      </div>
+				</div>
 
 				{/* All Update Sections - Only show when token data is loaded */}
 				{
 					(tokenData && (
 						<div className="space-y-8">
-												{/* Metadata Updates */}
-					<form onSubmit={onSubmitMetadata}>
-      <div className="card">
-									<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-										2. Update Metadata
-									</h3>
+							{/* Metadata Updates */}
+							{hasArtistUpdateMetaPermission && (
+								<form onSubmit={onSubmitMetadata}>
+									<div className="card">
+										<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+											Update Metadata
+										</h3>
 
-									{!hasArtistUpdateMetaPermission ? (
-										<p className="text-red-400">
-											You don't have permission to update metadata.
+										<p className="text-zinc-400 mb-4">
+											Leave fields empty to keep existing values
 										</p>
-									) : (
-										<>
-											<p className="text-zinc-400 mb-4">
-												Leave fields empty to keep existing values
+
+										<div className="space-y-4">
+											<div>
+												<label className="label">New Title</label>
+												<input
+													className="input-field"
+													placeholder="Updated artwork title"
+													value={name}
+													onChange={(e) => setName(e.target.value)}
+												/>
+											</div>
+											<div>
+												<label className="label">New Description</label>
+												<textarea
+													rows={4}
+													className="textarea-field"
+													placeholder="Updated description..."
+													value={description}
+													onChange={(e) => setDescription(e.target.value)}
+												/>
+											</div>
+											<div>
+												<label className="label">New External Link</label>
+												<input
+													className="input-field"
+													placeholder="https://updatedlink.com"
+													value={externalUrl}
+													onChange={(e) => setExternalUrl(e.target.value)}
+												/>
+											</div>
+										</div>
+
+										<div className="mt-6">
+											<label className="label">Properties</label>
+											<p className="help-text mb-3">
+												Update or add new attributes
 											</p>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="label">New Title</label>
-            <input
-              className="input-field"
-              placeholder="Updated artwork title"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">New Description</label>
-            <textarea
-              rows={4}
-              className="textarea-field"
-              placeholder="Updated description..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">New External Link</label>
-            <input
-              className="input-field"
-														placeholder="https://updatedlink.com"
-              value={externalUrl}
-              onChange={(e) => setExternalUrl(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="mt-6">
-												<label className="label">Properties</label>
-												<p className="help-text mb-3">
-													Update or add new attributes
-												</p>
-          {attributes.map((attr, index) => (
-            <div key={index} className="flex gap-2 mb-2">
-              <input
-                className="input-field flex-1"
-                placeholder="Property"
-                value={attr.trait_type}
-															onChange={(e) =>
-																handleAttributeChange(
-																	index,
-																	"trait_type",
-																	e.target.value
-																)
-															}
-              />
-              <input
-                className="input-field flex-1"
-                placeholder="Value"
-                value={attr.value}
-															onChange={(e) =>
-																handleAttributeChange(
-																	index,
-																	"value",
-																	e.target.value
-																)
-															}
-														/>
-														<button
-															type="button"
-															onClick={() => handleRemoveAttribute(index)}
-															className="btn-ghost"
+											{attributes.map((attr, index) => (
+												<div key={index} className="flex gap-2 mb-2">
+													<input
+														className="input-field flex-1"
+														placeholder="Property"
+														value={attr.trait_type}
+														onChange={(e) =>
+															handleAttributeChange(
+																index,
+																"trait_type",
+																e.target.value
+															)
+														}
+													/>
+													<input
+														className="input-field flex-1"
+														placeholder="Value"
+														value={attr.value}
+														onChange={(e) =>
+															handleAttributeChange(
+																index,
+																"value",
+																e.target.value
+															)
+														}
+													/>
+													<button
+														type="button"
+														onClick={() => handleRemoveAttribute(index)}
+														className="btn-ghost"
+													>
+														<svg
+															className="w-5 h-5"
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
 														>
-															<svg
-																className="w-5 h-5"
-																fill="none"
-																stroke="currentColor"
-																viewBox="0 0 24 24"
-															>
-																<path
-																	strokeLinecap="round"
-																	strokeLinejoin="round"
-																	strokeWidth={2}
-																	d="M6 18L18 6M6 6l12 12"
-																/>
-                </svg>
-              </button>
-            </div>
-          ))}
-												<button
-													type="button"
-													onClick={handleAddAttribute}
-													className="btn-secondary text-sm"
-												>
-            + Add Property
-          </button>
-											</div>
+															<path
+																strokeLinecap="round"
+																strokeLinejoin="round"
+																strokeWidth={2}
+																d="M6 18L18 6M6 6l12 12"
+															/>
+														</svg>
+													</button>
+												</div>
+											))}
+											<button
+												type="button"
+												onClick={handleAddAttribute}
+												className="btn-secondary text-sm"
+											>
+												+ Add Property
+											</button>
+										</div>
 
-											<div className="flex justify-end mt-6">
-												{simulateMetadataError && (
-													<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
-														<p className="text-sm text-orange-300 font-medium">Update will fail:</p>
-														<p className="text-xs text-orange-200 mt-1">{simulateMetadataError.message}</p>
-													</div>
-												)}
+										<div className="flex justify-end mt-6">
+											{simulateMetadataError && (
+												<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
+													<p className="text-sm text-orange-300 font-medium">
+														Update will fail:
+													</p>
+													<p className="text-xs text-orange-200 mt-1">
+														{simulateMetadataError.message}
+													</p>
+												</div>
+											)}
 
-												<button
-													type="submit"
-													className="btn-primary"
-													disabled={!metadataJson || isPending || isConfirming || !hasArtistUpdateMetaPermission || !!simulateMetadataError}
-												>
-													{isPending || isConfirming
-														? "Updating..."
-														: "Update Metadata"}
-												</button>
-											</div>
-										</>
-									)}
-								</div>
-							</form>
+											<button
+												type="submit"
+												className="btn-primary"
+												disabled={
+													!metadataJson ||
+													isPending ||
+													isConfirming ||
+													!hasArtistUpdateMetaPermission ||
+													!!simulateMetadataError
+												}
+											>
+												{isPending || isConfirming
+													? "Updating..."
+													: "Update Metadata"}
+											</button>
+										</div>
+									</div>
+								</form>
+							)}
 
 							{/* Display Mode */}
-							<div className="card">
-								<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-									3. Display Mode
-								</h3>
-								<div className="space-y-4">
-									<div>
-										<label className="label">Current Display Mode</label>
-										<select
-											className="input-field"
-											value={displayMode}
-											onChange={(e) => setDisplayMode(Number(e.target.value))}
-										>
-											<option value={0}>Image</option>
-											<option value={1}>Interactive HTML</option>
-										</select>
-									</div>
-																			{simulateDisplayError && (
+							{hasArtistUpdateModePermission && (
+								<div className="card">
+									<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+										Display Mode
+									</h3>
+									<div className="space-y-4">
+										<div>
+											<label className="label">Current Display Mode</label>
+											<select
+												className="input-field"
+												value={displayMode}
+												onChange={(e) => setDisplayMode(Number(e.target.value))}
+											>
+												<option value={0}>Image</option>
+												<option value={1}>Interactive HTML</option>
+											</select>
+										</div>
+										{simulateDisplayError && (
 											<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
-												<p className="text-sm text-orange-300 font-medium">Update will fail:</p>
-												<p className="text-xs text-orange-200 mt-1">{simulateDisplayError.message}</p>
+												<p className="text-sm text-orange-300 font-medium">
+													Update will fail:
+												</p>
+												<p className="text-xs text-orange-200 mt-1">
+													{simulateDisplayError.message}
+												</p>
 											</div>
 										)}
 
@@ -723,17 +872,22 @@ export default function Update() {
 											type="button"
 											onClick={updateDisplayMode}
 											className="btn-secondary"
-											disabled={!!simulateDisplayError || isPending || isConfirming}
+											disabled={
+												!!simulateDisplayError || isPending || isConfirming
+											}
 										>
-											{isPending || isConfirming ? "Updating..." : "Update Display Mode"}
+											{isPending || isConfirming
+												? "Updating..."
+												: "Update Display Mode"}
 										</button>
+									</div>
 								</div>
-							</div>
+							)}
 
 							{/* Artwork URI Management */}
 							<div className="card">
 								<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-									4. Artwork URIs
+									Artwork URIs
 								</h3>
 								<div className="space-y-4">
 									<div className="flex gap-2">
@@ -779,54 +933,237 @@ export default function Update() {
 										)) as React.ReactNode
 									}
 
-									{
-										(artistArtworkUris && artistArtworkUris.length > 0 && (
-											<div>
-												<label className="label">
-													Selected Artwork (1-based, 0 = none)
-												</label>
-												<input
-													type="number"
-													className="input-field"
-													min="0"
-													max={artistArtworkUris.length}
-													value={selectedArtworkIndex}
-													onChange={(e) =>
-														setSelectedArtworkIndex(
-															parseInt(e.target.value) || 0
-														)
-													}
-												/>
-												<button
-													type="button"
-													onClick={updateArtworkSelection}
-													className="btn-secondary mt-2"
-												>
-													Update Selection
-												</button>
-											</div>
-										)) as React.ReactNode
-									}
-        </div>
-      </div>
+									{artistArtworkUris && artistArtworkUris.length > 0 && hasArtistChooseUrisPermission && (
+										<div>
+											<label className="label">
+												Selected Artwork (0-based index)
+											</label>
+											<select
+												className="input-field"
+												value={selectedArtworkIndex}
+												onChange={(e) =>
+													setSelectedArtworkIndex(parseInt(e.target.value))
+												}
+											>
+												{artistArtworkUris.map((uri: string, index: number) => (
+													<option key={index} value={index}>
+														{index}:{" "}
+														{uri.length > 50
+															? `${uri.substring(0, 50)}...`
+															: uri}
+													</option>
+												))}
+											</select>
+											<button
+												type="button"
+												onClick={updateArtworkSelection}
+												className="btn-secondary mt-2"
+											>
+												Update Selection
+											</button>
+										</div>
+									)}
+								</div>
+							</div>
 
 							{/* Thumbnail Management */}
-      <div className="card">
-								<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-									5. Thumbnail Management
-								</h3>
+							{hasArtistUpdateThumbPermission && (
+								<div className="card">
+									<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+										Thumbnail Management
+									</h3>
 
-								{!hasArtistUpdateThumbPermission ? (
-									<p className="text-red-400">
-										You don't have permission to update thumbnails.
-									</p>
-																) : isOnChainThumbnail ? (
+									{isOnChainThumbnail ? (
 										<form onSubmit={onSubmitThumbnail}>
 											<p className="text-zinc-400 mb-4">
 												Upload a new on-chain thumbnail file
 											</p>
+											<div
+												className={`upload-zone ${thumbnailFile ? "active" : ""}`}
+												onDragOver={(e) => {
+													e.preventDefault();
+													e.currentTarget.classList.add("active");
+												}}
+												onDragLeave={(e) => {
+													e.currentTarget.classList.remove("active");
+												}}
+												onDrop={(e) => {
+													e.preventDefault();
+													e.currentTarget.classList.remove("active");
+													const file = e.dataTransfer.files?.[0];
+													if (file && isThumbnailSupported(file)) {
+														prepareThumbnail(file);
+													} else if (file) {
+														alert(getUnsupportedThumbnailMessage(file));
+													}
+												}}
+												onClick={() => {
+													const input = document.createElement("input");
+													input.type = "file";
+													input.accept = getThumbnailAcceptAttribute();
+													input.onchange = () => {
+														const file = input.files?.[0];
+														if (file && isThumbnailSupported(file)) {
+															prepareThumbnail(file);
+														} else if (file) {
+															alert(getUnsupportedThumbnailMessage(file));
+														}
+													};
+													input.click();
+												}}
+											>
+												{thumbnailPreview ? (
+													<div className="space-y-2">
+														<FilePreview
+															file={thumbnailFile}
+															previewUrl={thumbnailPreview}
+															maxHeight="max-h-32"
+														/>
+														<p className="text-sm text-zinc-400 text-center">
+															{thumbChunks.length} chunks • {thumbLength} bytes
+															original
+														</p>
+													</div>
+												) : (
+													<>
+														<svg
+															className="w-8 h-8 text-gray-400 mx-auto mb-2"
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
+														>
+															<path
+																strokeLinecap="round"
+																strokeLinejoin="round"
+																strokeWidth={2}
+																d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+															/>
+														</svg>
+														<p className="text-zinc-400 text-sm">
+															Drop a new thumbnail or click to browse
+														</p>
+													</>
+												)}
+											</div>
+											<button
+												type="submit"
+												className="btn-primary mt-4 w-full"
+												disabled={
+													!thumbnailFile ||
+													thumbChunks.length === 0 ||
+													isPending ||
+													isConfirming
+												}
+											>
+												{isPending || isConfirming
+													? "Updating..."
+													: "Update Thumbnail"}
+											</button>
+										</form>
+									) : (
+										<div className="space-y-4">
+											<p className="text-zinc-400">
+												Manage off-chain thumbnail URIs
+											</p>
+											<div className="flex gap-2">
+												<input
+													className="input-field flex-1"
+													placeholder="ipfs://... or https://..."
+													value={newThumbnailUri}
+													onChange={(e) => setNewThumbnailUri(e.target.value)}
+												/>
+												<button
+													type="button"
+													disabled
+													className="btn-primary opacity-50 cursor-not-allowed"
+													title="Not available in this version"
+												>
+													Add
+												</button>
+											</div>
+
+											{artistThumbnailUris && artistThumbnailUris.length > 0 && (
+												<div className="space-y-2">
+													<p className="text-sm text-zinc-400">
+														Current thumbnail URIs:
+													</p>
+													{artistThumbnailUris.map((uri: string, index: number) => (
+														<div
+															key={index}
+															className="flex gap-2 items-center p-2 bg-zinc-800 rounded"
+														>
+															<span className="flex-1 text-sm font-mono text-zinc-300 break-all">
+																{uri}
+															</span>
+														</div>
+													))}
+												</div>
+											)}
+
+											{artistThumbnailUris && artistThumbnailUris.length > 0 && (
+												<div>
+													<label className="label">
+														Selected Thumbnail (0-based index)
+													</label>
+													<select
+														className="input-field"
+														value={selectedThumbnailIndex}
+														onChange={(e) =>
+															setSelectedThumbnailIndex(
+																parseInt(e.target.value)
+															)
+														}
+													>
+														{artistThumbnailUris.map((uri: string, index: number) => (
+															<option key={index} value={index}>
+																{index}:{" "}
+																{uri.length > 50
+																	? `${uri.substring(0, 50)}...`
+																	: uri}
+															</option>
+														))}
+													</select>
+													<button
+														type="button"
+														onClick={updateThumbnailSelection}
+														className="btn-secondary mt-2"
+													>
+														Update Selection
+													</button>
+												</div>
+											)}
+										</div>
+									)}
+								</div>
+							)}
+
+							{/* HTML Template Management */}
+							{hasArtistUpdateTemplatePermission && (
+								<div className="card">
+									<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+										HTML Template Management
+									</h3>
+
+									<form onSubmit={onSubmitHtmlTemplate}>
+										{simulateHtmlTemplateError && (
+											<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
+												<p className="text-sm text-orange-300 font-medium">
+													Update will fail:
+												</p>
+												<p className="text-xs text-orange-200 mt-1">
+													{simulateHtmlTemplateError.message}
+												</p>
+											</div>
+										)}
+
+										<p className="text-zinc-400 mb-4">
+											Upload a custom HTML template for this token
+										</p>
+
 										<div
-											className={`upload-zone ${thumbnailFile ? "active" : ""}`}
+											className={`upload-zone ${
+												htmlTemplateFile ? "active" : ""
+											}`}
 											onDragOver={(e) => {
 												e.preventDefault();
 												e.currentTarget.classList.add("active");
@@ -834,45 +1171,62 @@ export default function Update() {
 											onDragLeave={(e) => {
 												e.currentTarget.classList.remove("active");
 											}}
-          onDrop={(e) => {
+											onDrop={(e) => {
 												e.preventDefault();
 												e.currentTarget.classList.remove("active");
 												const file = e.dataTransfer.files?.[0];
-												if (file && isThumbnailSupported(file)) {
-													prepareThumbnail(file);
+												if (
+													file &&
+													(file.type === "text/html" ||
+														file.name.endsWith(".html"))
+												) {
+													prepareHtmlTemplate(file);
 												} else if (file) {
-													alert(getUnsupportedThumbnailMessage(file));
+													alert("Please upload an HTML file");
 												}
-          }}
-          onClick={() => {
+											}}
+											onClick={() => {
 												const input = document.createElement("input");
 												input.type = "file";
-												input.accept = getThumbnailAcceptAttribute();
-            input.onchange = () => {
+												input.accept = ".html,.htm";
+												input.onchange = () => {
 													const file = input.files?.[0];
-													if (file && isThumbnailSupported(file)) {
-														prepareThumbnail(file);
+													if (
+														file &&
+														(file.type === "text/html" ||
+															file.name.endsWith(".html"))
+													) {
+														prepareHtmlTemplate(file);
 													} else if (file) {
-														alert(getUnsupportedThumbnailMessage(file));
+														alert("Please upload an HTML file");
 													}
 												};
 												input.click();
-          }}
-        >
-          {thumbnailPreview ? (
-            <div className="space-y-2">
-													<FilePreview
-														file={thumbnailFile}
-														previewUrl={thumbnailPreview}
-														maxHeight="max-h-32"
-													/>
-													<p className="text-sm text-zinc-400 text-center">
-														{thumbChunks.length} chunks • {thumbLength} bytes
-														original
-              </p>
-            </div>
-          ) : (
-            <>
+											}}
+										>
+											{htmlTemplateFile ? (
+												<div className="space-y-2">
+													<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
+														<p className="text-sm font-medium text-zinc-300 mb-2">
+															{htmlTemplateFile.name}
+														</p>
+														<p className="text-xs text-zinc-400">
+															{htmlTemplateChunks.length} chunks •{" "}
+															{htmlTemplateContent.length} characters
+														</p>
+														<details className="mt-2">
+															<summary className="text-xs text-zinc-400 cursor-pointer">
+																Preview content
+															</summary>
+															<pre className="text-xs text-zinc-500 mt-1 p-2 bg-zinc-900 rounded max-h-32 overflow-auto">
+																{htmlTemplateContent.slice(0, 500)}
+																{htmlTemplateContent.length > 500 ? "..." : ""}
+															</pre>
+														</details>
+													</div>
+												</div>
+											) : (
+												<>
 													<svg
 														className="w-8 h-8 text-gray-400 mx-auto mb-2"
 														fill="none"
@@ -883,223 +1237,366 @@ export default function Update() {
 															strokeLinecap="round"
 															strokeLinejoin="round"
 															strokeWidth={2}
-															d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+															d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
 														/>
-              </svg>
+													</svg>
 													<p className="text-zinc-400 text-sm">
-														Drop a new thumbnail or click to browse
+														Drop an HTML template or click to browse
 													</p>
-            </>
-          )}
-        </div>
+													<p className="text-xs text-zinc-500 mt-1">
+														Use {"{{FILE_URIS}}"} and {"{{FILE_HASH}}"}{" "}
+														placeholders
+													</p>
+												</>
+											)}
+										</div>
+
 										<button
 											type="submit"
 											className="btn-primary mt-4 w-full"
-											disabled={!thumbnailFile || thumbChunks.length === 0 || isPending || isConfirming}
+											disabled={
+												!htmlTemplateFile ||
+												htmlTemplateChunks.length === 0 ||
+												isPending ||
+												isConfirming ||
+												!!simulateHtmlTemplateError
+											}
 										>
-											{isPending || isConfirming ? "Updating..." : "Update Thumbnail"}
+											{isPending || isConfirming
+												? "Updating..."
+												: "Update HTML Template"}
 										</button>
 									</form>
-								) : (
-									<div className="space-y-4">
-										<p className="text-zinc-400">
-											Manage off-chain thumbnail URIs
-										</p>
-										<div className="flex gap-2">
-											<input
-												className="input-field flex-1"
-												placeholder="ipfs://... or https://..."
-												value={newThumbnailUri}
-												onChange={(e) => setNewThumbnailUri(e.target.value)}
-											/>
-																							<button
-													type="button"
-													disabled
-													className="btn-primary opacity-50 cursor-not-allowed"
-													title="Not available in this version"
-												>
-													Add
-												</button>
-      </div>
+								</div>
+							)}
 
-										{
-											(artistThumbnailUris &&
-												artistThumbnailUris.length > 0 && (
-													<div className="space-y-2">
-														<p className="text-sm text-zinc-400">
-															Current thumbnail URIs:
-														</p>
-														{(artistThumbnailUris).map(
-															(uri: string, index: number) => (
-																<div
-																	key={index}
-																	className="flex gap-2 items-center p-2 bg-zinc-800 rounded"
-																>
-																	<span className="flex-1 text-sm font-mono text-zinc-300 break-all">
-																		{uri}
-																	</span>
-																	
-																</div>
-															)
+							{/* Permission Management */}
+							<div className="card">
+								<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+									Permission Management
+								</h3>
+								<div className="space-y-6">
+									<div className="space-y-4">
+										<p className="text-zinc-300 font-medium">
+											Enhance trustlessness by reducing points of failure
+										</p>
+										<p className="text-zinc-400 text-sm leading-relaxed">
+											In crypto, trustlessness means your artwork doesn't depend
+											on any single party. By revoking your artist permissions,
+											you eliminate yourself as a potential point of failure,
+											making your artwork more decentralized and trustworthy to
+											collectors.
+										</p>
+										<p className="text-zinc-400 text-sm">
+											Once revoked, permissions cannot be restored. You
+											permanently lose the ability to modify the artwork, but
+											collectors gain assurance that the piece cannot be changed
+											or rugged.
+										</p>
+									</div>
+
+									{/* Individual Permission Revocation */}
+									<form onSubmit={onSubmitRevokePermissions}>
+										<div className="space-y-4">
+											<h4 className="text-base font-medium text-zinc-200">
+												Revoke Specific Permissions
+											</h4>
+
+											<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+												<label className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/70 transition-colors cursor-pointer">
+													<input
+														type="checkbox"
+														checked={revokeUpdateThumbnail}
+														onChange={(e) =>
+															setRevokeUpdateThumbnail(e.target.checked)
+														}
+														className="checkbox"
+														disabled={!hasArtistUpdateThumbPermission}
+													/>
+													<div>
+														<span
+															className={`text-sm font-medium ${
+																!hasArtistUpdateThumbPermission
+																	? "text-zinc-500"
+																	: "text-zinc-300"
+															}`}
+														>
+															Update Thumbnail
+														</span>
+														{!hasArtistUpdateThumbPermission && (
+															<p className="text-xs text-zinc-500">
+																Already revoked
+															</p>
 														)}
 													</div>
-												)) as React.ReactNode
-										}
+												</label>
 
-										{
-											(artistThumbnailUris &&
-												artistThumbnailUris.length > 0 && (
+												<label className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/70 transition-colors cursor-pointer">
+													<input
+														type="checkbox"
+														checked={revokeUpdateMetadata}
+														onChange={(e) =>
+															setRevokeUpdateMetadata(e.target.checked)
+														}
+														className="checkbox"
+														disabled={!hasArtistUpdateMetaPermission}
+													/>
 													<div>
-														<label className="label">
-															Selected Thumbnail (1-based, 0 = on-chain)
-														</label>
-														<input
-															type="number"
-															className="input-field"
-															min="0"
-															max={artistThumbnailUris.length}
-															value={selectedThumbnailIndex}
-															onChange={(e) =>
-																setSelectedThumbnailIndex(
-																	parseInt(e.target.value) || 0
-																)
-															}
-														/>
-        <button
-															type="button"
-															onClick={updateThumbnailSelection}
-															className="btn-secondary mt-2"
+														<span
+															className={`text-sm font-medium ${
+																!hasArtistUpdateMetaPermission
+																	? "text-zinc-500"
+																	: "text-zinc-300"
+															}`}
 														>
-																																					Update Selection
-        </button>
-      </div>
-																				)) as React.ReactNode
-																			}
-																		</div>
-																	)}
-																</div>
-
-														{/* HTML Template Management */}
-														<div className="card">
-															<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-																6. HTML Template Management
-															</h3>
-
-															{!hasArtistUpdateTemplatePermission ? (
-																<p className="text-red-400">
-																	You don't have permission to update HTML templates.
-																</p>
-															) : (
-																<form onSubmit={onSubmitHtmlTemplate}>
-																	{simulateHtmlTemplateError && (
-																		<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
-																			<p className="text-sm text-orange-300 font-medium">Update will fail:</p>
-																			<p className="text-xs text-orange-200 mt-1">{simulateHtmlTemplateError.message}</p>
-																		</div>
-																	)}
-
-																	<p className="text-zinc-400 mb-4">
-																		Upload a custom HTML template for this token
-																	</p>
-
-																	<div
-																		className={`upload-zone ${htmlTemplateFile ? "active" : ""}`}
-																		onDragOver={(e) => {
-																			e.preventDefault();
-																			e.currentTarget.classList.add("active");
-																		}}
-																		onDragLeave={(e) => {
-																			e.currentTarget.classList.remove("active");
-																		}}
-																		onDrop={(e) => {
-																			e.preventDefault();
-																			e.currentTarget.classList.remove("active");
-																			const file = e.dataTransfer.files?.[0];
-																			if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
-																				prepareHtmlTemplate(file);
-																			} else if (file) {
-																				alert('Please upload an HTML file');
-																			}
-																		}}
-																		onClick={() => {
-																			const input = document.createElement("input");
-																			input.type = "file";
-																			input.accept = ".html,.htm";
-																			input.onchange = () => {
-																				const file = input.files?.[0];
-																				if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
-																					prepareHtmlTemplate(file);
-																				} else if (file) {
-																					alert('Please upload an HTML file');
-																				}
-																			};
-																			input.click();
-																		}}
-																	>
-																		{htmlTemplateFile ? (
-																			<div className="space-y-2">
-																				<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
-																					<p className="text-sm font-medium text-zinc-300 mb-2">{htmlTemplateFile.name}</p>
-																					<p className="text-xs text-zinc-400">{htmlTemplateChunks.length} chunks • {htmlTemplateContent.length} characters</p>
-																					<details className="mt-2">
-																						<summary className="text-xs text-zinc-400 cursor-pointer">Preview content</summary>
-																						<pre className="text-xs text-zinc-500 mt-1 p-2 bg-zinc-900 rounded max-h-32 overflow-auto">
-																							{htmlTemplateContent.slice(0, 500)}{htmlTemplateContent.length > 500 ? '...' : ''}
-																						</pre>
-																					</details>
-																				</div>
-																			</div>
-																		) : (
-																			<>
-																				<svg
-																					className="w-8 h-8 text-gray-400 mx-auto mb-2"
-																					fill="none"
-																					stroke="currentColor"
-																					viewBox="0 0 24 24"
-																				>
-																					<path
-																						strokeLinecap="round"
-																						strokeLinejoin="round"
-																						strokeWidth={2}
-																						d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-																					/>
-																				</svg>
-																				<p className="text-zinc-400 text-sm">
-																					Drop an HTML template or click to browse
-																				</p>
-																				<p className="text-xs text-zinc-500 mt-1">
-																					Use {'{{FILE_URIS}}'} and {'{{FILE_HASH}}'} placeholders
-																				</p>
-																			</>
-																		)}
-																	</div>
-
-																	<button
-																		type="submit"
-																		className="btn-primary mt-4 w-full"
-																		disabled={!htmlTemplateFile || htmlTemplateChunks.length === 0 || isPending || isConfirming || !!simulateHtmlTemplateError}
-																	>
-																		{isPending || isConfirming ? "Updating..." : "Update HTML Template"}
-																	</button>
-																</form>
-															)}
-														</div>
+															Update Metadata
+														</span>
+														{!hasArtistUpdateMetaPermission && (
+															<p className="text-xs text-zinc-500">
+																Already revoked
+															</p>
+														)}
 													</div>
+												</label>
+
+												<label className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/70 transition-colors cursor-pointer">
+													<input
+														type="checkbox"
+														checked={revokeChooseUris}
+														onChange={(e) =>
+															setRevokeChooseUris(e.target.checked)
+														}
+														className="checkbox"
+														disabled={!hasArtistChooseUrisPermission}
+													/>
+													<div>
+														<span
+															className={`text-sm font-medium ${
+																!hasArtistChooseUrisPermission
+																	? "text-zinc-500"
+																	: "text-zinc-300"
+															}`}
+														>
+															Choose URIs
+														</span>
+														{!hasArtistChooseUrisPermission && (
+															<p className="text-xs text-zinc-500">
+																Already revoked
+															</p>
+														)}
+													</div>
+												</label>
+
+												<label className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/70 transition-colors cursor-pointer">
+													<input
+														type="checkbox"
+														checked={revokeAddRemoveUris}
+														onChange={(e) =>
+															setRevokeAddRemoveUris(e.target.checked)
+														}
+														className="checkbox"
+														disabled={!hasArtistAddRemovePermission}
+													/>
+													<div>
+														<span
+															className={`text-sm font-medium ${
+																!hasArtistAddRemovePermission
+																	? "text-zinc-500"
+																	: "text-zinc-300"
+															}`}
+														>
+															Add/Remove URIs
+														</span>
+														{!hasArtistAddRemovePermission && (
+															<p className="text-xs text-zinc-500">
+																Already revoked
+															</p>
+														)}
+													</div>
+												</label>
+
+												<label className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/70 transition-colors cursor-pointer">
+													<input
+														type="checkbox"
+														checked={revokeChooseThumbnail}
+														onChange={(e) =>
+															setRevokeChooseThumbnail(e.target.checked)
+														}
+														className="checkbox"
+														disabled={!hasArtistChooseThumbPermission}
+													/>
+													<div>
+														<span
+															className={`text-sm font-medium ${
+																!hasArtistChooseThumbPermission
+																	? "text-zinc-500"
+																	: "text-zinc-300"
+															}`}
+														>
+															Choose Thumbnail
+														</span>
+														{!hasArtistChooseThumbPermission && (
+															<p className="text-xs text-zinc-500">
+																Already revoked
+															</p>
+														)}
+													</div>
+												</label>
+
+												<label className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/70 transition-colors cursor-pointer">
+													<input
+														type="checkbox"
+														checked={revokeUpdateDisplayMode}
+														onChange={(e) =>
+															setRevokeUpdateDisplayMode(e.target.checked)
+														}
+														className="checkbox"
+														disabled={!hasArtistUpdateModePermission}
+													/>
+													<div>
+														<span
+															className={`text-sm font-medium ${
+																!hasArtistUpdateModePermission
+																	? "text-zinc-500"
+																	: "text-zinc-300"
+															}`}
+														>
+															Update Display Mode
+														</span>
+														{!hasArtistUpdateModePermission && (
+															<p className="text-xs text-zinc-500">
+																Already revoked
+															</p>
+														)}
+													</div>
+												</label>
+
+												<label className="flex items-center gap-3 p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800/70 transition-colors cursor-pointer">
+													<input
+														type="checkbox"
+														checked={revokeUpdateTemplate}
+														onChange={(e) =>
+															setRevokeUpdateTemplate(e.target.checked)
+														}
+														className="checkbox"
+														disabled={!hasArtistUpdateTemplatePermission}
+													/>
+													<div>
+														<span
+															className={`text-sm font-medium ${
+																!hasArtistUpdateTemplatePermission
+																	? "text-zinc-500"
+																	: "text-zinc-300"
+															}`}
+														>
+															Update HTML Template
+														</span>
+														{!hasArtistUpdateTemplatePermission && (
+															<p className="text-xs text-zinc-500">
+																Already revoked
+															</p>
+														)}
+													</div>
+												</label>
+											</div>
+
+											{simulateRevokePermissionsError && (
+												<div className="p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
+													<p className="text-sm text-orange-300 font-medium">
+														Revocation will fail:
+													</p>
+													<p className="text-xs text-orange-200 mt-1">
+														{simulateRevokePermissionsError.message}
+													</p>
+												</div>
+											)}
+
+											<button
+												type="submit"
+												className="btn-secondary w-full"
+												disabled={
+													!hasPermissionsToRevoke ||
+													isPending ||
+													isConfirming ||
+													!!simulateRevokePermissionsError
+												}
+											>
+												{isPending || isConfirming
+													? "Revoking..."
+													: "Revoke Selected Permissions"}
+											</button>
+										</div>
+									</form>
+
+									{/* Revoke All Permissions */}
+									<form onSubmit={onSubmitRevokeAllPermissions}>
+										<div className="space-y-4 pt-4 border-t border-zinc-700">
+											<h4 className="text-base font-medium text-zinc-200">
+												Nuclear Option
+											</h4>
+											<p className="text-sm text-zinc-400">
+												Revoke all artist permissions at once for complete
+												decentralization. This makes your artwork permanently
+												immutable and eliminates all artist-related points of
+												failure, maximizing trustlessness.
+											</p>
+											{simulateRevokeAllPermissionsError && (
+												<div className="p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
+													<p className="text-sm text-orange-300 font-medium">
+														Revocation will fail:
+													</p>
+													<p className="text-xs text-orange-200 mt-1">
+														{simulateRevokeAllPermissionsError.message}
+													</p>
+												</div>
+											)}
+
+											<button
+												type="submit"
+												className="btn-danger w-full"
+												disabled={
+													isPending ||
+													isConfirming ||
+													!!simulateRevokeAllPermissionsError
+												}
+											>
+												{isPending || isConfirming
+													? "Revoking..."
+													: "Revoke All Artist Permissions"}
+											</button>
+										</div>
+									</form>
+								</div>
+							</div>
+						</div>
 					)) as React.ReactNode
 				}
 
 				{/* Status Messages */}
-      {hash && !isSuccess && (
-        <div className="text-center text-sm text-zinc-400">
-          Transaction submitted. Waiting for confirmation...
-        </div>
-      )}
+				{hash && !isSuccess && (
+					<div className="text-center text-sm text-zinc-400">
+						Transaction submitted. Waiting for confirmation...
+					</div>
+				)}
 
 				{writeError && (
 					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
 						<div className="text-center py-4">
-							<h3 className="text-lg text-red-300 mb-2">Transaction Error</h3>
-							<p className="text-red-200 text-sm mb-2">{writeError.message}</p>
+							<h3 className="text-lg text-red-300 mb-2">Transaction Failed</h3>
+							<p className="text-red-200 text-sm mb-4">
+								{writeError.message.split(".")[0] +
+									(writeError.message.includes(".") ? "." : "")}
+							</p>
+							{writeError.message.length > 100 && (
+								<details className="text-left text-xs text-red-300">
+									<summary className="cursor-pointer hover:text-red-200">
+										Show full error
+									</summary>
+									<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
+										<p className="break-words">{writeError.message}</p>
+									</div>
+								</details>
+							)}
 						</div>
 					</div>
 				)}
@@ -1107,8 +1604,21 @@ export default function Update() {
 				{receiptError && (
 					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
 						<div className="text-center py-4">
-							<h3 className="text-lg text-red-300 mb-2">Receipt Error</h3>
-							<p className="text-red-200 text-sm">{receiptError.message}</p>
+							<h3 className="text-lg text-red-300 mb-2">Transaction Failed</h3>
+							<p className="text-red-200 text-sm mb-4">
+								{receiptError.message.split(".")[0] +
+									(receiptError.message.includes(".") ? "." : "")}
+							</p>
+							{receiptError.message.length > 100 && (
+								<details className="text-left text-xs text-red-300">
+									<summary className="cursor-pointer hover:text-red-200">
+										Show full error
+									</summary>
+									<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
+										<p className="break-words">{receiptError.message}</p>
+									</div>
+								</details>
+							)}
 						</div>
 					</div>
 				)}
@@ -1194,7 +1704,7 @@ export default function Update() {
 						{/* Preview of what will be available */}
 						<div className="card bg-zinc-900 border-zinc-700 opacity-60">
 							<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-								2. Update Metadata
+								Update Metadata
 							</h3>
 							<p className="text-zinc-400">
 								Update name, description, and properties (available after
@@ -1204,7 +1714,7 @@ export default function Update() {
 
 						<div className="card bg-zinc-900 border-zinc-700 opacity-60">
 							<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-								3. Display Mode
+								Display Mode
 							</h3>
 							<p className="text-zinc-400">
 								Switch between Image and Interactive HTML modes
@@ -1213,7 +1723,7 @@ export default function Update() {
 
 						<div className="card bg-zinc-900 border-zinc-700 opacity-60">
 							<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-								4. Artwork URIs
+								Artwork URIs
 							</h3>
 							<p className="text-zinc-400">
 								Manage artist artwork URIs and selections
@@ -1222,10 +1732,28 @@ export default function Update() {
 
 						<div className="card bg-zinc-900 border-zinc-700 opacity-60">
 							<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-								5. Thumbnail Management
+								Thumbnail Management
 							</h3>
 							<p className="text-zinc-400">
 								Update on-chain thumbnails or manage off-chain thumbnail URIs
+							</p>
+						</div>
+
+						<div className="card bg-zinc-900 border-zinc-700 opacity-60">
+							<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+								HTML Template Management
+							</h3>
+							<p className="text-zinc-400">
+								Upload custom HTML templates for interactive tokens
+							</p>
+						</div>
+
+						<div className="card bg-zinc-900 border-zinc-700 opacity-60">
+							<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+								Permission Management
+							</h3>
+							<p className="text-zinc-400">
+								Revoke artist permissions permanently (irreversible action)
 							</p>
 						</div>
 
@@ -1256,6 +1784,6 @@ export default function Update() {
 					</div>
 				)}
 			</div>
-    </div>
+		</div>
 	);
 }
