@@ -1,5 +1,9 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt, useSimulateContract } from "wagmi";
+import {
+	useWriteContract,
+	useWaitForTransactionReceipt,
+	useSimulateContract,
+} from "wagmi";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import type { Address } from "viem";
@@ -39,7 +43,7 @@ export default function Mint() {
 	// Display preferences
 	const [displayMode, setDisplayMode] = useState(1);
 	const [isAnimationUri, setIsAnimationUri] = useState(false);
-	const [useOffchainThumbnail, setUseOffchainThumbnail] = useState(true);
+	const [useOffchainThumbnail, setUseOffchainThumbnail] = useState(false);
 
 	// Artist permissions (bits 0-6)
 	const [artistUpdateThumb, setArtistUpdateThumb] = useState(true);
@@ -165,7 +169,7 @@ export default function Mint() {
 		reader.onload = (e) => {
 			const content = e.target?.result as string;
 			setHtmlTemplateContent(content);
-			
+
 			// For HTML templates, we store them as string chunks (not compressed)
 			const CHUNK_SIZE = 20 * 1024; // 20KB per chunk for text
 			const chunks: string[] = [];
@@ -261,7 +265,7 @@ export default function Mint() {
 	// Calculate permissions flags
 	const permissionsFlags = useMemo(() => {
 		let flags = 0;
-		
+
 		// Artist permissions (bits 0-6)
 		if (artistUpdateThumb) flags |= 1 << 0;
 		if (artistUpdateMeta) flags |= 1 << 1;
@@ -270,13 +274,13 @@ export default function Mint() {
 		if (artistChooseThumb) flags |= 1 << 4;
 		if (artistUpdateMode) flags |= 1 << 5;
 		if (artistUpdateTemplate) flags |= 1 << 6;
-		
+
 		// Collector permissions (bits 7-10)
 		if (collectorChooseUris) flags |= 1 << 7;
 		if (collectorAddRemove) flags |= 1 << 8;
 		if (collectorChooseThumb) flags |= 1 << 9;
 		if (collectorUpdateMode) flags |= 1 << 10;
-		
+
 		return flags;
 	}, [
 		artistUpdateThumb,
@@ -349,39 +353,51 @@ export default function Mint() {
 	);
 
 	// Simulate contract calls for better error handling
-	const erc1155SimulateArgs = useMemo(() => ({
-		abi: multiplexExtensionAbi,
-		address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
-		functionName: "mintERC1155" as const,
-					args: [
+	const erc1155SimulateArgs = useMemo(
+		() => ({
+			abi: multiplexExtensionAbi,
+			address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+			functionName: "mintERC1155" as const,
+			args: [
 				creator,
 				recipientsArr,
 				quantitiesArr,
 				initConfig,
 				thumbChunks as readonly `0x${string}`[],
 			] as const,
-		value: 0n,
-		query: { enabled: type === "ERC1155" && !!name && recipientsArr.length > 0 },
-	}), [creator, recipientsArr, quantitiesArr, initConfig, thumbChunks, type, name]);
+			value: 0n,
+			query: {
+				enabled: type === "ERC1155" && !!name && recipientsArr.length > 0,
+			},
+		}),
+		[creator, recipientsArr, quantitiesArr, initConfig, thumbChunks, type, name]
+	);
 
-	const erc721SimulateArgs = useMemo(() => ({
-		abi: multiplexExtensionAbi,
-		address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
-		functionName: "mintERC721" as const,
-					args: [
+	const erc721SimulateArgs = useMemo(
+		() => ({
+			abi: multiplexExtensionAbi,
+			address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+			functionName: "mintERC721" as const,
+			args: [
 				creator,
-				recipientsArr[0] || "0x0000000000000000000000000000000000000000" as Address,
+				recipientsArr[0] ||
+					("0x0000000000000000000000000000000000000000" as Address),
 				initConfig,
 				thumbChunks as readonly `0x${string}`[],
 			] as const,
-		value: 0n,
-		query: { enabled: type === "ERC721" && !!name && recipientsArr.length > 0 },
-	}), [creator, recipientsArr, initConfig, thumbChunks, type, name]);
+			value: 0n,
+			query: {
+				enabled: type === "ERC721" && !!name && recipientsArr.length > 0,
+			},
+		}),
+		[creator, recipientsArr, initConfig, thumbChunks, type, name]
+	);
 
 	const { error: simulateError1155 } = useSimulateContract(erc1155SimulateArgs);
 	const { error: simulateError721 } = useSimulateContract(erc721SimulateArgs);
 
-	const simulateError = type === "ERC1155" ? simulateError1155 : simulateError721;
+	const simulateError =
+		type === "ERC1155" ? simulateError1155 : simulateError721;
 
 	const onSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -394,8 +410,14 @@ export default function Mint() {
 		console.log("Recipients array:", recipientsArr);
 		console.log("Quantities:", quantities);
 		console.log("Quantities array:", quantitiesArr);
-		console.log("Init config:", JSON.stringify(initConfig, (_, value) => 
-			typeof value === 'bigint' ? value.toString() : value, 2));
+		console.log(
+			"Init config:",
+			JSON.stringify(
+				initConfig,
+				(_, value) => (typeof value === "bigint" ? value.toString() : value),
+				2
+			)
+		);
 		console.log("Permissions flags:", permissionsFlags);
 		console.log("Thumb chunks count:", thumbChunks.length);
 		console.log("Simulation error:", simulateError);
@@ -426,39 +448,53 @@ export default function Mint() {
 				console.log("Contract address:", creator);
 				console.log("Recipients:", recipientsArr);
 				console.log("Quantities:", quantitiesArr);
-				console.log("Config:", JSON.stringify(initConfig, (_, value) => 
-					typeof value === 'bigint' ? value.toString() : value, 2));
+				console.log(
+					"Config:",
+					JSON.stringify(
+						initConfig,
+						(_, value) =>
+							typeof value === "bigint" ? value.toString() : value,
+						2
+					)
+				);
 				console.log("Thumb chunks:", thumbChunks);
 				writeContract({
 					abi: multiplexExtensionAbi,
 					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC1155",
 					args: [
-											creator,
-					recipientsArr,
-					quantitiesArr,
-					initConfig,
-					thumbChunks as readonly `0x${string}`[],
-				],
+						creator,
+						recipientsArr,
+						quantitiesArr,
+						initConfig,
+						thumbChunks as readonly `0x${string}`[],
+					],
 					value: 0n,
 				});
 			} else {
 				console.log("About to call mintERC721...");
 				console.log("Contract address:", creator);
 				console.log("Recipient:", recipientsArr[0]);
-				console.log("Config:", JSON.stringify(initConfig, (_, value) => 
-					typeof value === 'bigint' ? value.toString() : value, 2));
+				console.log(
+					"Config:",
+					JSON.stringify(
+						initConfig,
+						(_, value) =>
+							typeof value === "bigint" ? value.toString() : value,
+						2
+					)
+				);
 				console.log("Thumb chunks:", thumbChunks);
 				writeContract({
 					abi: multiplexExtensionAbi,
 					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC721",
 					args: [
-											creator,
-					recipientsArr[0], // ERC721 takes single recipient
-					initConfig,
-					thumbChunks as readonly `0x${string}`[],
-				],
+						creator,
+						recipientsArr[0], // ERC721 takes single recipient
+						initConfig,
+						thumbChunks as readonly `0x${string}`[],
+					],
 					value: 0n,
 				});
 			}
@@ -737,7 +773,7 @@ export default function Mint() {
 						</div>
 
 						<div>
-							<label className="label">Additional Artwork URIs</label>
+							<label className="label">Artwork URIs</label>
 							<textarea
 								rows={3}
 								className="textarea-field font-mono text-sm"
@@ -746,8 +782,75 @@ export default function Mint() {
 								onChange={(e) => setArtistArtworkUris(e.target.value)}
 							/>
 							<p className="help-text">
-								One URI per line. Collectors can select from these artworks.
+								One URI per line. Collectors can select from these artworks if allowed.
 							</p>
+							
+							{/* File Upload Suggestions */}
+							<div className="mt-3 p-3 bg-zinc-800/30 border border-zinc-700/50 rounded-lg">
+								<h5 className="text-sm font-medium text-zinc-300 mb-2">Suggested upload options, the more the better:</h5>
+								<div className="grid grid-cols-2 gap-1 text-xs">
+									<a href="https://ardrive.net" target="_blank" rel="noopener noreferrer" 
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+										<span>ArDrive (Arweave)</span>
+										<span className="text-orange-400 font-medium relative group">
+											PAID
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Pay per upload • Permanent decentralized storage
+											</div>
+										</span>
+									</a>
+									<a href="https://web3.storage" target="_blank" rel="noopener noreferrer" 
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+										<span>Web3.Storage (IPFS)</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+									<a href="https://archive.org/create/" target="_blank" rel="noopener noreferrer" 
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+										<span>Internet Archive</span>
+										<span className="text-green-400 font-medium relative group">
+											FREE
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												No cost • Rate limiting for abuse prevention
+											</div>
+										</span>
+									</a>
+									<a href="https://github.com" target="_blank" rel="noopener noreferrer" 
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+										<span>GitHub (raw links)</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+									<a href="https://developers.cloudflare.com/r2/" target="_blank" rel="noopener noreferrer" 
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+										<span>Cloudflare R2</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+									<a href="https://aws.amazon.com/s3/" target="_blank" rel="noopener noreferrer" 
+										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between">
+										<span>AWS S3</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+								</div>
+							</div>
 						</div>
 
 						<div>
@@ -769,7 +872,7 @@ export default function Mint() {
 
 						{!useOffchainThumbnail && (
 							<div>
-								<label className="label">On-chain Thumbnail (optional)</label>
+								<label className="label">On-chain Thumbnail</label>
 								<div
 									className={`upload-zone ${thumbnailFile ? "active" : ""}`}
 									onDragOver={(e) => {
@@ -825,98 +928,112 @@ export default function Mint() {
 							</div>
 						)}
 
-													{useOffchainThumbnail && (
-								<div>
-									<label className="label">Thumbnail URIs</label>
-									<textarea
-										rows={3}
-										className="textarea-field font-mono text-sm"
-										placeholder="ipfs://thumb1&#10;ipfs://thumb2"
-										value={artistThumbnailUris}
-										onChange={(e) => setArtistThumbnailUris(e.target.value)}
-									/>
-									<p className="help-text">
-										One URI per line. Collectors can select from these thumbnails.
-									</p>
-								</div>
-							)}
-
+						{useOffchainThumbnail && (
 							<div>
-								<label className="label">Custom HTML Template (optional)</label>
-								<div
-									className={`upload-zone ${htmlTemplateFile ? "active" : ""}`}
-									onDragOver={(e) => {
-										e.preventDefault();
-										e.currentTarget.classList.add("active");
-									}}
-									onDragLeave={(e) => {
-										e.currentTarget.classList.remove("active");
-									}}
-									onDrop={(e) => {
-										e.preventDefault();
-										e.currentTarget.classList.remove("active");
-										const file = e.dataTransfer.files?.[0];
-										if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
+								<label className="label">Thumbnail URIs</label>
+								<textarea
+									rows={3}
+									className="textarea-field font-mono text-sm"
+									placeholder="ipfs://thumb1&#10;ipfs://thumb2"
+									value={artistThumbnailUris}
+									onChange={(e) => setArtistThumbnailUris(e.target.value)}
+								/>
+								<p className="help-text">
+									One URI per line. Collectors can select from these thumbnails if allowed.
+								</p>
+							</div>
+						)}
+
+						<div>
+							<label className="label">Custom HTML Template (optional)</label>
+							<div
+								className={`upload-zone ${htmlTemplateFile ? "active" : ""}`}
+								onDragOver={(e) => {
+									e.preventDefault();
+									e.currentTarget.classList.add("active");
+								}}
+								onDragLeave={(e) => {
+									e.currentTarget.classList.remove("active");
+								}}
+								onDrop={(e) => {
+									e.preventDefault();
+									e.currentTarget.classList.remove("active");
+									const file = e.dataTransfer.files?.[0];
+									if (
+										file &&
+										(file.type === "text/html" || file.name.endsWith(".html"))
+									) {
+										prepareHtmlTemplate(file);
+									} else if (file) {
+										alert("Please upload an HTML file");
+									}
+								}}
+								onClick={() => {
+									const input = document.createElement("input");
+									input.type = "file";
+									input.accept = ".html,.htm";
+									input.onchange = () => {
+										const file = input.files?.[0];
+										if (
+											file &&
+											(file.type === "text/html" || file.name.endsWith(".html"))
+										) {
 											prepareHtmlTemplate(file);
 										} else if (file) {
-											alert('Please upload an HTML file');
+											alert("Please upload an HTML file");
 										}
-									}}
-									onClick={() => {
-										const input = document.createElement("input");
-										input.type = "file";
-										input.accept = ".html,.htm";
-										input.onchange = () => {
-											const file = input.files?.[0];
-											if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
-												prepareHtmlTemplate(file);
-											} else if (file) {
-												alert('Please upload an HTML file');
-											}
-										};
-										input.click();
-									}}
-								>
-									{htmlTemplateFile ? (
-										<div className="space-y-2">
-											<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
-												<p className="text-sm font-medium text-zinc-300 mb-2">{htmlTemplateFile.name}</p>
-												<p className="text-xs text-zinc-400">{htmlTemplateChunks.length} chunks • {htmlTemplateContent.length} characters</p>
-												<details className="mt-2">
-													<summary className="text-xs text-zinc-400 cursor-pointer">Preview content</summary>
-													<pre className="text-xs text-zinc-500 mt-1 p-2 bg-zinc-900 rounded max-h-32 overflow-auto">
-														{htmlTemplateContent.slice(0, 500)}{htmlTemplateContent.length > 500 ? '...' : ''}
-													</pre>
-												</details>
-											</div>
+									};
+									input.click();
+								}}
+							>
+								{htmlTemplateFile ? (
+									<div className="space-y-2">
+										<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
+											<p className="text-sm font-medium text-zinc-300 mb-2">
+												{htmlTemplateFile.name}
+											</p>
+											<p className="text-xs text-zinc-400">
+												{htmlTemplateChunks.length} chunks •{" "}
+												{htmlTemplateContent.length} characters
+											</p>
+											<details className="mt-2">
+												<summary className="text-xs text-zinc-400 cursor-pointer">
+													Preview content
+												</summary>
+												<pre className="text-xs text-zinc-500 mt-1 p-2 bg-zinc-900 rounded max-h-32 overflow-auto">
+													{htmlTemplateContent.slice(0, 500)}
+													{htmlTemplateContent.length > 500 ? "..." : ""}
+												</pre>
+											</details>
 										</div>
-									) : (
-										<>
-											<svg
-												className="w-8 h-8 text-gray-400 mx-auto mb-2"
-												fill="none"
-												stroke="currentColor"
-												viewBox="0 0 24 24"
-											>
-												<path
-													strokeLinecap="round"
-													strokeLinejoin="round"
-													strokeWidth={2}
-													d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-												/>
-											</svg>
-											<p className="text-zinc-400 text-sm">
-												Drop an HTML template or click to browse
-											</p>
-											<p className="text-xs text-zinc-500 mt-1">
-												Optional: Use {'{{FILE_URIS}}'} and {'{{FILE_HASH}}'} placeholders
-											</p>
-										</>
-									)}
-								</div>
+									</div>
+								) : (
+									<>
+										<svg
+											className="w-8 h-8 text-gray-400 mx-auto mb-2"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												strokeLinecap="round"
+												strokeLinejoin="round"
+												strokeWidth={2}
+												d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+											/>
+										</svg>
+										<p className="text-zinc-400 text-sm">
+											Drop an HTML template or click to browse
+										</p>
+										<p className="text-xs text-zinc-500 mt-1">
+											Use: {"{{FILE_URIS}}"} and {"{{FILE_HASH}}"} placeholders
+										</p>
+									</>
+								)}
 							</div>
 						</div>
 					</div>
+				</div>
 
 				{/* Step 4: Artist Permissions */}
 				<div className="card">
@@ -924,7 +1041,8 @@ export default function Mint() {
 						4. Artist Permissions
 					</h3>
 					<p className="text-zinc-400 mb-4">
-						What actions can you retain as the artist? (You can revoke these later)
+						What actions can you retain as the artist? (You can revoke these
+						later)
 					</p>
 					<div className="space-y-3">
 						<label className="flex items-center gap-3">
@@ -934,9 +1052,7 @@ export default function Mint() {
 								onChange={(e) => setArtistUpdateThumb(e.target.checked)}
 								className="checkbox"
 							/>
-							<span className="text-zinc-300">
-								Update thumbnail
-							</span>
+							<span className="text-zinc-300">Update thumbnail</span>
 						</label>
 						<label className="flex items-center gap-3">
 							<input
@@ -957,7 +1073,7 @@ export default function Mint() {
 								className="checkbox"
 							/>
 							<span className="text-zinc-300">
-								Select from artist-provided artwork URIs
+								Select from artist-provided artworks
 							</span>
 						</label>
 						<label className="flex items-center gap-3">
@@ -967,9 +1083,7 @@ export default function Mint() {
 								onChange={(e) => setArtistAddRemove(e.target.checked)}
 								className="checkbox"
 							/>
-							<span className="text-zinc-300">
-								Add or remove artwork URIs
-							</span>
+							<span className="text-zinc-300">Add or remove artwork URIs</span>
 						</label>
 						<label className="flex items-center gap-3">
 							<input
@@ -990,7 +1104,7 @@ export default function Mint() {
 								className="checkbox"
 							/>
 							<span className="text-zinc-300">
-								Change display mode
+								Toggle between display modes
 							</span>
 						</label>
 						<label className="flex items-center gap-3">
@@ -1000,9 +1114,7 @@ export default function Mint() {
 								onChange={(e) => setArtistUpdateTemplate(e.target.checked)}
 								className="checkbox"
 							/>
-							<span className="text-zinc-300">
-								Update HTML template
-							</span>
+							<span className="text-zinc-300">Update HTML template</span>
 						</label>
 					</div>
 				</div>
@@ -1034,9 +1146,7 @@ export default function Mint() {
 								onChange={(e) => setCollectorAddRemove(e.target.checked)}
 								className="checkbox"
 							/>
-							<span className="text-zinc-300">
-								Add their own artwork URIs
-							</span>
+							<span className="text-zinc-300">Add their own artwork URIs</span>
 						</label>
 						{useOffchainThumbnail && (
 							<label className="flex items-center gap-3">
@@ -1115,7 +1225,11 @@ export default function Mint() {
 						type="submit"
 						className="btn-primary"
 						disabled={
-							!name || recipientsArr.length === 0 || isPending || isConfirming || !!simulateError
+							!name ||
+							recipientsArr.length === 0 ||
+							isPending ||
+							isConfirming ||
+							!!simulateError
 						}
 					>
 						{isPending || isConfirming ? (
@@ -1156,13 +1270,21 @@ export default function Mint() {
 				{simulateError && (
 					<div className="card bg-orange-500 bg-opacity-10 border-orange-500 border-opacity-30">
 						<div className="text-center py-4">
-							<h3 className="text-lg text-orange-300 mb-2">Transaction Will Fail</h3>
-							<p className="text-orange-200 text-sm mb-2">{simulateError.message}</p>
+							<h3 className="text-lg text-orange-300 mb-2">
+								Transaction Will Fail
+							</h3>
+							<p className="text-orange-200 text-sm mb-2">
+								{simulateError.message}
+							</p>
 							<details className="text-left text-xs text-orange-300">
 								<summary className="cursor-pointer">Show details</summary>
 								<pre className="mt-2 p-2 bg-orange-900 bg-opacity-20 rounded overflow-auto">
-									{JSON.stringify(simulateError, (_, value) => 
-										typeof value === 'bigint' ? value.toString() : value, 2)}
+									{JSON.stringify(
+										simulateError,
+										(_, value) =>
+											typeof value === "bigint" ? value.toString() : value,
+										2
+									)}
 								</pre>
 							</details>
 						</div>
@@ -1177,8 +1299,12 @@ export default function Mint() {
 							<details className="text-left text-xs text-red-300">
 								<summary className="cursor-pointer">Show details</summary>
 								<pre className="mt-2 p-2 bg-red-900 bg-opacity-20 rounded overflow-auto">
-									{JSON.stringify(writeError, (_, value) => 
-										typeof value === 'bigint' ? value.toString() : value, 2)}
+									{JSON.stringify(
+										writeError,
+										(_, value) =>
+											typeof value === "bigint" ? value.toString() : value,
+										2
+									)}
 								</pre>
 							</details>
 						</div>
