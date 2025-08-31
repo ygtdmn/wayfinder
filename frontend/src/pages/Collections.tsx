@@ -7,8 +7,11 @@ import type { Address } from "viem";
 import { wagmiConfig } from "../lib/wagmi";
 import { ierc721CreatorCoreAbi } from "../abis/IERC721CreatorCore-abi";
 import { ierc1155CreatorCoreAbi } from "../abis/IERC1155CreatorCore-abi";
+import { multiplexAbi } from "../abis/multiplex-abi";
 import RegisterExtension from "../components/RegisterExtension";
+import RegisterMultiplex from "../components/RegisterMultiplex";
 import { useManifoldAuth } from "../hooks/useManifoldAuth";
+import { useReadContract } from "wagmi";
 
 type CreatorCoreInfo = {
 	address: Address;
@@ -32,7 +35,36 @@ export default function Collections() {
 		null
 	);
 
-	const canProceed = Boolean(resolved && resolved.isAdmin);
+	// Check if extension is registered with Manifold
+	const coreAbi = resolved?.type === "ERC721" ? ierc721CreatorCoreAbi : ierc1155CreatorCoreAbi;
+	const { data: extensions } = useReadContract({
+		abi: coreAbi,
+		address: resolved?.address,
+		functionName: "getExtensions",
+		args: [],
+		query: { enabled: !!resolved?.address && resolved?.type !== "Unknown" },
+	});
+
+	const multiplexExtensionAddress = import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address;
+	const isExtensionRegistered = extensions && Array.isArray(extensions)
+		? extensions.includes(multiplexExtensionAddress)
+		: false;
+
+	// Check if contract is registered with Multiplex
+	const { data: isContractRegistered } = useReadContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "isContractOperator",
+		args: [resolved?.address || "0x0000000000000000000000000000000000000000" as Address, multiplexExtensionAddress],
+		query: { enabled: !!resolved?.address },
+	});
+
+	const canProceed = Boolean(
+		resolved && 
+		resolved.isAdmin && 
+		isExtensionRegistered && 
+		isContractRegistered
+	);
 
 	useEffect(() => {
 		setResolved(null);
@@ -672,58 +704,83 @@ export default function Collections() {
 						{resolved && (
 							<div className="card animate-slide-up">
 								<div className="space-y-4">
-									<div className="flex items-center justify-between">
-										<div>
-											<h3 className="text-lg font-semibold text-zinc-100">
-												{resolved.name ||
-													`${
-														resolved.type === "ERC721"
-															? "Single Edition"
-															: resolved.type === "ERC1155"
-															? "Multiple Edition"
-															: "Unknown"
-													} Collection`}
-											</h3>
-											<p className="text-sm text-zinc-400 mt-1">
-												{resolved.address}
-											</p>
+																			<div className="flex items-center justify-between">
+											<div>
+												<h3 className="text-lg font-semibold text-zinc-100">
+													{resolved.name ||
+														`${
+															resolved.type === "ERC721"
+																? "Single Edition"
+																: resolved.type === "ERC1155"
+																? "Multiple Edition"
+																: "Unknown"
+														} Collection`}
+												</h3>
+												<p className="text-sm text-zinc-400 mt-1">
+													{resolved.address}
+												</p>
+											</div>
+											<div className="flex flex-col gap-2">
+												<div className={`px-3 py-1 text-xs font-medium rounded ${
+													isExtensionRegistered ? "bg-success bg-opacity-20 text-success" : "bg-zinc-700 text-zinc-400"
+												}`}>
+													Extension: {isExtensionRegistered ? "✓" : "✗"}
+												</div>
+												<div className={`px-3 py-1 text-xs font-medium rounded ${
+													isContractRegistered ? "bg-success bg-opacity-20 text-success" : "bg-zinc-700 text-zinc-400"
+												}`}>
+													Multiplex: {isContractRegistered ? "✓" : "✗"}
+												</div>
+											</div>
 										</div>
-										<div className="px-3 py-1 text-sm font-medium bg-success bg-opacity-20 text-success">
-											Ready
-										</div>
-									</div>
 
 									{resolved.type !== "Unknown" && (
-										<RegisterExtension
-											creator={resolved.address}
-											type={resolved.type}
-										/>
+										<div className="space-y-4">
+											<RegisterExtension
+												creator={resolved.address}
+												type={resolved.type}
+											/>
+											<RegisterMultiplex creator={resolved.address} />
+										</div>
 									)}
 
-									<div className="flex gap-3 pt-4">
-										<button
-											className="btn-primary flex-1"
-											disabled={!canProceed}
-											onClick={() =>
-												navigate(
-													`/mint?creator=${resolved.address}&type=${resolved.type}`
-												)
-											}
-										>
-											Create New Artwork
-										</button>
-										<button
-											className="btn-secondary flex-1"
-											disabled={!canProceed}
-											onClick={() =>
-												navigate(
-													`/update?creator=${resolved.address}&type=${resolved.type}`
-												)
-											}
-										>
-											Update Existing
-										</button>
-									</div>
+																			{!canProceed && (
+											<div className="p-4 bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-30 mb-4">
+												<div className="flex items-center gap-2">
+													<svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+													</svg>
+													<p className="text-sm text-yellow-300 font-medium">
+														Complete both registration steps above to enable minting and updating
+													</p>
+												</div>
+											</div>
+										)}
+
+										<div className="flex gap-3 pt-4">
+											<button
+												className={`flex-1 ${canProceed ? 'btn-primary' : 'btn-primary opacity-50 cursor-not-allowed'}`}
+												disabled={!canProceed}
+												onClick={() =>
+													navigate(
+														`/mint?creator=${resolved.address}&type=${resolved.type}`
+													)
+												}
+											>
+												Create New Artwork
+											</button>
+											<button
+												className={`flex-1 ${canProceed ? 'btn-secondary' : 'btn-secondary opacity-50 cursor-not-allowed'}`}
+												disabled={!canProceed}
+												onClick={() =>
+													navigate(
+														`/update?creator=${resolved.address}&type=${resolved.type}`
+													)
+												}
+											>
+												Update Existing
+											</button>
+										</div>
 								</div>
 							</div>
 						)}

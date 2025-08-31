@@ -1,9 +1,9 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, useSimulateContract } from "wagmi";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import type { Address } from "viem";
-import { multiplexAbi } from "../abis/multiplex-abi";
+import { multiplexExtensionAbi } from "../abis/multiplex-manifold-extension-abi";
 import fastlz from "../lib/fastlz";
 import { sha256 } from "js-sha256";
 import {
@@ -41,11 +41,20 @@ export default function Mint() {
 	const [isAnimationUri, setIsAnimationUri] = useState(false);
 	const [useOffchainThumbnail, setUseOffchainThumbnail] = useState(true);
 
-	// Collector permissions
-	const [allowAddArtwork, setAllowAddArtwork] = useState(true);
-	const [allowSelectArtwork, setAllowSelectArtwork] = useState(true);
-	const [allowSelectThumb, setAllowSelectThumb] = useState(true);
-	const [allowToggleDisplay, setAllowToggleDisplay] = useState(true);
+	// Artist permissions (bits 0-6)
+	const [artistUpdateThumb, setArtistUpdateThumb] = useState(true);
+	const [artistUpdateMeta, setArtistUpdateMeta] = useState(true);
+	const [artistChooseUris, setArtistChooseUris] = useState(true);
+	const [artistAddRemove, setArtistAddRemove] = useState(true);
+	const [artistChooseThumb, setArtistChooseThumb] = useState(true);
+	const [artistUpdateMode, setArtistUpdateMode] = useState(true);
+	const [artistUpdateTemplate, setArtistUpdateTemplate] = useState(true);
+
+	// Collector permissions (bits 7-10)
+	const [collectorChooseUris, setCollectorChooseUris] = useState(true);
+	const [collectorAddRemove, setCollectorAddRemove] = useState(true);
+	const [collectorChooseThumb, setCollectorChooseThumb] = useState(true);
+	const [collectorUpdateMode, setCollectorUpdateMode] = useState(true);
 
 	// Thumbnail
 	const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
@@ -130,7 +139,7 @@ export default function Mint() {
 		const compressed = fastlz.compress(new Uint8Array(buffer));
 		setThumbLength(buffer.byteLength);
 
-		const CHUNK_SIZE = 23 * 1024; // 23KB per chunk
+		const CHUNK_SIZE = 10 * 1024; // 23KB per chunk
 		const chunks: string[] = [];
 		for (let i = 0; i < compressed.length; i += CHUNK_SIZE) {
 			const chunk = compressed.slice(i, i + CHUNK_SIZE);
@@ -224,57 +233,126 @@ export default function Mint() {
 		return fields.join(",");
 	}, [name, description, externalUrl, attributes]);
 
-	const baseParams = useMemo(
+	// Calculate permissions flags
+	const permissionsFlags = useMemo(() => {
+		let flags = 0;
+		
+		// Artist permissions (bits 0-6)
+		if (artistUpdateThumb) flags |= 1 << 0;
+		if (artistUpdateMeta) flags |= 1 << 1;
+		if (artistChooseUris) flags |= 1 << 2;
+		if (artistAddRemove) flags |= 1 << 3;
+		if (artistChooseThumb) flags |= 1 << 4;
+		if (artistUpdateMode) flags |= 1 << 5;
+		if (artistUpdateTemplate) flags |= 1 << 6;
+		
+		// Collector permissions (bits 7-10)
+		if (collectorChooseUris) flags |= 1 << 7;
+		if (collectorAddRemove) flags |= 1 << 8;
+		if (collectorChooseThumb) flags |= 1 << 9;
+		if (collectorUpdateMode) flags |= 1 << 10;
+		
+		return flags;
+	}, [
+		artistUpdateThumb,
+		artistUpdateMeta,
+		artistChooseUris,
+		artistAddRemove,
+		artistChooseThumb,
+		artistUpdateMode,
+		artistUpdateTemplate,
+		collectorChooseUris,
+		collectorAddRemove,
+		collectorChooseThumb,
+		collectorUpdateMode,
+	]);
+
+	const initConfig = useMemo(
 		() => ({
 			metadata: metadataJson,
-			onChainThumbnail: {
-				mimeType: thumbMime,
-				chunks: [], // Empty - contract will populate with SSTORE2 addresses
-				length: BigInt(thumbLength || 0),
-				zipped: true,
-				deflated: false,
-			},
-			initialDisplayMode: displayMode,
-			immutableProperties: {
-				imageHash,
-				imageMimeType,
+			artwork: {
+				artistUris: (artistArtworkUris
+					? artistArtworkUris
+							.split("\n")
+							.map((s) => s.trim())
+							.filter(Boolean)
+					: []) as readonly string[],
+				collectorUris: [] as readonly string[],
+				mimeType: imageMimeType,
+				fileHash: imageHash,
 				isAnimationUri,
-				useOffchainThumbnail,
-				allowCollectorAddArtwork: allowAddArtwork,
-				allowCollectorSelectArtistArtwork: allowSelectArtwork,
-				allowCollectorSelectArtistThumbnail: allowSelectThumb,
-				allowCollectorToggleDisplayMode: allowToggleDisplay,
+				selectedArtistUriIndex: BigInt(0),
 			},
-			seedArtistArtworkUris: (artistArtworkUris
-				? artistArtworkUris
-						.split("\n")
-						.map((s) => s.trim())
-						.filter(Boolean)
-				: []) as readonly string[],
-			seedArtistThumbnailUris: (artistThumbnailUris
-				? artistThumbnailUris
-						.split("\n")
-						.map((s) => s.trim())
-						.filter(Boolean)
-				: []) as readonly string[],
+			thumbnail: {
+				kind: useOffchainThumbnail ? 1 : 0, // 0 = ON_CHAIN, 1 = OFF_CHAIN
+				onChain: {
+					mimeType: useOffchainThumbnail ? "" : thumbMime,
+					chunks: [] as readonly Address[],
+					zipped: !useOffchainThumbnail,
+				},
+				offChain: {
+					uris: (useOffchainThumbnail && artistThumbnailUris
+						? artistThumbnailUris
+								.split("\n")
+								.map((s) => s.trim())
+								.filter(Boolean)
+						: []) as readonly string[],
+					selectedUriIndex: BigInt(0),
+				},
+			},
+			displayMode,
+			permissions: {
+				flags: permissionsFlags,
+			},
 		}),
 		[
 			metadataJson,
-			thumbMime,
-			thumbLength,
-			displayMode,
-			imageHash,
+			artistArtworkUris,
 			imageMimeType,
+			imageHash,
 			isAnimationUri,
 			useOffchainThumbnail,
-			allowAddArtwork,
-			allowSelectArtwork,
-			allowSelectThumb,
-			allowToggleDisplay,
-			artistArtworkUris,
+			thumbMime,
 			artistThumbnailUris,
+			displayMode,
+			permissionsFlags,
 		]
 	);
+
+	// Simulate contract calls for better error handling
+	const erc1155SimulateArgs = useMemo(() => ({
+		abi: multiplexExtensionAbi,
+		address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+		functionName: "mintERC1155" as const,
+		args: [
+			creator,
+			recipientsArr,
+			quantitiesArr,
+			initConfig,
+			thumbChunks as readonly `0x${string}`[],
+		] as const,
+		value: 0n,
+		query: { enabled: type === "ERC1155" && !!name && recipientsArr.length > 0 },
+	}), [creator, recipientsArr, quantitiesArr, initConfig, thumbChunks, type, name]);
+
+	const erc721SimulateArgs = useMemo(() => ({
+		abi: multiplexExtensionAbi,
+		address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+		functionName: "mintERC721" as const,
+		args: [
+			creator,
+			recipientsArr[0] || "0x0000000000000000000000000000000000000000" as Address,
+			initConfig,
+			thumbChunks as readonly `0x${string}`[],
+		] as const,
+		value: 0n,
+		query: { enabled: type === "ERC721" && !!name && recipientsArr.length > 0 },
+	}), [creator, recipientsArr, initConfig, thumbChunks, type, name]);
+
+	const { error: simulateError1155 } = useSimulateContract(erc1155SimulateArgs);
+	const { error: simulateError721 } = useSimulateContract(erc721SimulateArgs);
+
+	const simulateError = type === "ERC1155" ? simulateError1155 : simulateError721;
 
 	const onSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -287,8 +365,11 @@ export default function Mint() {
 		console.log("Recipients array:", recipientsArr);
 		console.log("Quantities:", quantities);
 		console.log("Quantities array:", quantitiesArr);
-		console.log("Base params:", baseParams);
+		console.log("Init config:", JSON.stringify(initConfig, (_, value) => 
+			typeof value === 'bigint' ? value.toString() : value, 2));
+		console.log("Permissions flags:", permissionsFlags);
 		console.log("Thumb chunks count:", thumbChunks.length);
+		console.log("Simulation error:", simulateError);
 		console.log("Metadata JSON:", metadataJson);
 		console.log("Image hash:", imageHash);
 		console.log("Artwork file:", artworkFile);
@@ -312,32 +393,43 @@ export default function Mint() {
 
 		try {
 			if (type === "ERC1155") {
-				const params = {
-					baseParams,
-					recipients: recipientsArr,
-					quantities: quantitiesArr,
-				};
-				console.log("ERC1155 params:", params);
-				console.log("About to call writeContract for ERC1155...");
+				console.log("About to call mintERC1155...");
+				console.log("Contract address:", creator);
+				console.log("Recipients:", recipientsArr);
+				console.log("Quantities:", quantitiesArr);
+				console.log("Config:", JSON.stringify(initConfig, (_, value) => 
+					typeof value === 'bigint' ? value.toString() : value, 2));
+				console.log("Thumb chunks:", thumbChunks);
 				writeContract({
-					abi: multiplexAbi,
-					address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+					abi: multiplexExtensionAbi,
+					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC1155",
-					args: [creator, params, thumbChunks as readonly `0x${string}`[]],
+					args: [
+						creator,
+						recipientsArr,
+						quantitiesArr,
+						initConfig,
+						thumbChunks as readonly `0x${string}`[],
+					],
 					value: 0n,
 				});
 			} else {
-				const params = {
-					baseParams,
-					recipients: recipientsArr,
-				};
-				console.log("ERC721 params:", params);
-				console.log("About to call writeContract for ERC721...");
+				console.log("About to call mintERC721...");
+				console.log("Contract address:", creator);
+				console.log("Recipient:", recipientsArr[0]);
+				console.log("Config:", JSON.stringify(initConfig, (_, value) => 
+					typeof value === 'bigint' ? value.toString() : value, 2));
+				console.log("Thumb chunks:", thumbChunks);
 				writeContract({
-					abi: multiplexAbi,
-					address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+					abi: multiplexExtensionAbi,
+					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC721",
-					args: [creator, params, thumbChunks as readonly `0x${string}`[]],
+					args: [
+						creator,
+						recipientsArr[0], // ERC721 takes single recipient
+						initConfig,
+						thumbChunks as readonly `0x${string}`[],
+					],
 					value: 0n,
 				});
 			}
@@ -722,10 +814,99 @@ export default function Mint() {
 					</div>
 				</div>
 
-				{/* Step 4: Collector Permissions */}
+				{/* Step 4: Artist Permissions */}
 				<div className="card">
 					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						4. Collector Permissions
+						4. Artist Permissions
+					</h3>
+					<p className="text-zinc-400 mb-4">
+						What actions can you retain as the artist? (You can revoke these later)
+					</p>
+					<div className="space-y-3">
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={artistUpdateThumb}
+								onChange={(e) => setArtistUpdateThumb(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Update thumbnail
+							</span>
+						</label>
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={artistUpdateMeta}
+								onChange={(e) => setArtistUpdateMeta(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Update metadata (name, description, attributes)
+							</span>
+						</label>
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={artistChooseUris}
+								onChange={(e) => setArtistChooseUris(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Select from artist-provided artwork URIs
+							</span>
+						</label>
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={artistAddRemove}
+								onChange={(e) => setArtistAddRemove(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Add or remove artwork URIs
+							</span>
+						</label>
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={artistChooseThumb}
+								onChange={(e) => setArtistChooseThumb(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Select from artist-provided thumbnails
+							</span>
+						</label>
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={artistUpdateMode}
+								onChange={(e) => setArtistUpdateMode(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Change display mode
+							</span>
+						</label>
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={artistUpdateTemplate}
+								onChange={(e) => setArtistUpdateTemplate(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Update HTML template
+							</span>
+						</label>
+					</div>
+				</div>
+
+				{/* Step 5: Collector Permissions */}
+				<div className="card">
+					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+						5. Collector Permissions
 					</h3>
 					<p className="text-zinc-400 mb-4">
 						What can collectors do with your artwork?
@@ -734,31 +915,31 @@ export default function Mint() {
 						<label className="flex items-center gap-3">
 							<input
 								type="checkbox"
-								checked={allowAddArtwork}
-								onChange={(e) => setAllowAddArtwork(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">
-								Add their own artwork (HTML mode only)
-							</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={allowSelectArtwork}
-								onChange={(e) => setAllowSelectArtwork(e.target.checked)}
+								checked={collectorChooseUris}
+								onChange={(e) => setCollectorChooseUris(e.target.checked)}
 								className="checkbox"
 							/>
 							<span className="text-zinc-300">
 								Select from artist-provided artworks
 							</span>
 						</label>
+						<label className="flex items-center gap-3">
+							<input
+								type="checkbox"
+								checked={collectorAddRemove}
+								onChange={(e) => setCollectorAddRemove(e.target.checked)}
+								className="checkbox"
+							/>
+							<span className="text-zinc-300">
+								Add their own artwork URIs
+							</span>
+						</label>
 						{useOffchainThumbnail && (
 							<label className="flex items-center gap-3">
 								<input
 									type="checkbox"
-									checked={allowSelectThumb}
-									onChange={(e) => setAllowSelectThumb(e.target.checked)}
+									checked={collectorChooseThumb}
+									onChange={(e) => setCollectorChooseThumb(e.target.checked)}
 									className="checkbox"
 								/>
 								<span className="text-zinc-300">
@@ -769,8 +950,8 @@ export default function Mint() {
 						<label className="flex items-center gap-3">
 							<input
 								type="checkbox"
-								checked={allowToggleDisplay}
-								onChange={(e) => setAllowToggleDisplay(e.target.checked)}
+								checked={collectorUpdateMode}
+								onChange={(e) => setCollectorUpdateMode(e.target.checked)}
 								className="checkbox"
 							/>
 							<span className="text-zinc-300">
@@ -780,12 +961,12 @@ export default function Mint() {
 					</div>
 				</div>
 
-				{/* Step 5: Recipients */}
+				{/* Step 6: Recipients */}
 				<div className="card">
 					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
 						{type === "ERC1155"
-							? "5. Recipients & Quantities"
-							: "5. Recipients"}
+							? "6. Recipients & Quantities"
+							: "6. Recipients"}
 					</h3>
 					<div className="space-y-4">
 						<div>
@@ -830,7 +1011,7 @@ export default function Mint() {
 						type="submit"
 						className="btn-primary"
 						disabled={
-							!name || recipientsArr.length === 0 || isPending || isConfirming
+							!name || recipientsArr.length === 0 || isPending || isConfirming || !!simulateError
 						}
 					>
 						{isPending || isConfirming ? (
@@ -868,6 +1049,22 @@ export default function Mint() {
 					</div>
 				)}
 
+				{simulateError && (
+					<div className="card bg-orange-500 bg-opacity-10 border-orange-500 border-opacity-30">
+						<div className="text-center py-4">
+							<h3 className="text-lg text-orange-300 mb-2">Transaction Will Fail</h3>
+							<p className="text-orange-200 text-sm mb-2">{simulateError.message}</p>
+							<details className="text-left text-xs text-orange-300">
+								<summary className="cursor-pointer">Show details</summary>
+								<pre className="mt-2 p-2 bg-orange-900 bg-opacity-20 rounded overflow-auto">
+									{JSON.stringify(simulateError, (_, value) => 
+										typeof value === 'bigint' ? value.toString() : value, 2)}
+								</pre>
+							</details>
+						</div>
+					</div>
+				)}
+
 				{writeError && (
 					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
 						<div className="text-center py-4">
@@ -876,7 +1073,8 @@ export default function Mint() {
 							<details className="text-left text-xs text-red-300">
 								<summary className="cursor-pointer">Show details</summary>
 								<pre className="mt-2 p-2 bg-red-900 bg-opacity-20 rounded overflow-auto">
-									{JSON.stringify(writeError, null, 2)}
+									{JSON.stringify(writeError, (_, value) => 
+										typeof value === 'bigint' ? value.toString() : value, 2)}
 								</pre>
 							</details>
 						</div>

@@ -5,59 +5,46 @@ import {
 	useSimulateContract,
 } from "wagmi";
 import type { Address } from "viem";
-import { ierc721CreatorCoreAbi } from "../abis/IERC721CreatorCore-abi";
-import { ierc1155CreatorCoreAbi } from "../abis/IERC1155CreatorCore-abi";
+import { multiplexAbi } from "../abis/multiplex-abi";
 
-interface RegisterExtensionProps {
+interface RegisterMultiplexProps {
 	creator: Address;
-	type: "ERC721" | "ERC1155";
 }
 
-export default function RegisterExtension({
-	creator,
-	type,
-}: RegisterExtensionProps) {
-	const baseURI = "";
+export default function RegisterMultiplex({ creator }: RegisterMultiplexProps) {
+	const multiplexAddress = import.meta.env.VITE_MULTIPLEX_ADDRESS as Address;
 	const multiplexExtensionAddress = import.meta.env
 		.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address;
-
-	const coreAbi =
-		type === "ERC721" ? ierc721CreatorCoreAbi : ierc1155CreatorCoreAbi;
 
 	const { data: hash, isPending, writeContract } = useWriteContract();
 	const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
 		hash,
 	});
 
-	// Check if extension is already registered
-	const { data: extensions } = useReadContract({
-		abi: coreAbi,
-		address: creator,
-		functionName: "getExtensions",
-		args: [],
+	// Check if contract is already registered with Multiplex
+	const { data: isRegistered } = useReadContract({
+		abi: multiplexAbi,
+		address: multiplexAddress,
+		functionName: "isContractOperator",
+		args: [creator, multiplexExtensionAddress],
 		query: { enabled: !!creator },
 	});
 
-	const isExtensionRegistered =
-		extensions && Array.isArray(extensions)
-			? extensions.includes(multiplexExtensionAddress)
-			: false;
-
 	// Simulate the registration to catch errors
 	const { error: simulateError } = useSimulateContract({
-		abi: coreAbi,
-		address: creator,
-		functionName: "registerExtension",
-		args: [multiplexExtensionAddress, baseURI],
-		query: { enabled: !!creator && !isExtensionRegistered },
+		abi: multiplexAbi,
+		address: multiplexAddress,
+		functionName: "registerContract",
+		args: [creator, multiplexExtensionAddress],
+		query: { enabled: !!creator && !isRegistered },
 	});
 
 	const handleRegister = () => {
 		writeContract({
-			abi: coreAbi,
-			address: creator,
-			functionName: "registerExtension",
-			args: [multiplexExtensionAddress, baseURI],
+			abi: multiplexAbi,
+			address: multiplexAddress,
+			functionName: "registerContract",
+			args: [creator, multiplexExtensionAddress],
 		});
 	};
 
@@ -80,7 +67,7 @@ export default function RegisterExtension({
 						/>
 					</svg>
 					<p className="text-sm text-success font-medium">
-						Multiplex extension registered successfully!
+						Contract registered with Multiplex successfully!
 					</p>
 				</div>
 			</div>
@@ -88,7 +75,7 @@ export default function RegisterExtension({
 	}
 
 	// Show already registered status
-	if (isExtensionRegistered) {
+	if (isRegistered) {
 		return (
 			<div className="p-4 bg-success bg-opacity-10 border border-success border-opacity-20">
 				<div className="flex items-center">
@@ -106,7 +93,7 @@ export default function RegisterExtension({
 						/>
 					</svg>
 					<p className="text-sm text-success font-medium">
-						Multiplex extension is already registered!
+						Contract is already registered with Multiplex!
 					</p>
 				</div>
 			</div>
@@ -114,14 +101,14 @@ export default function RegisterExtension({
 	}
 
 	return (
-		<div className="p-4 bg-zinc-800  border border-zinc-700">
+		<div className="p-4 bg-zinc-800 border border-zinc-700">
 			<div className="flex items-start justify-between">
 				<div>
 					<h4 className="font-medium text-zinc-100">
-						Register Multiplex Extension
+						Register with Multiplex
 					</h4>
 					<p className="text-sm text-zinc-400 mt-1">
-						Required to use Multiplex features with this collection
+						Required to enable Multiplex features for this collection
 					</p>
 				</div>
 			</div>
@@ -129,9 +116,7 @@ export default function RegisterExtension({
 			<button
 				onClick={handleRegister}
 				className="btn-primary w-full mt-4"
-				disabled={
-					isPending || isConfirming || !creator || isExtensionRegistered || !!simulateError
-				}
+				disabled={isPending || isConfirming || !creator || isRegistered || !!simulateError}
 			>
 				{isPending || isConfirming ? (
 					<>
@@ -156,10 +141,10 @@ export default function RegisterExtension({
 						</svg>
 						{isPending ? "Registering..." : "Confirming..."}
 					</>
-				) : isExtensionRegistered ? (
+				) : isRegistered ? (
 					"Already Registered"
 				) : (
-					"Register Extension"
+					"Register Contract"
 				)}
 			</button>
 

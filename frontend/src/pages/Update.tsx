@@ -3,6 +3,7 @@ import {
 	useWriteContract,
 	useWaitForTransactionReceipt,
 	useReadContract,
+	useSimulateContract,
 } from "wagmi";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
@@ -49,11 +50,13 @@ export default function Update() {
 	const [selectedArtworkIndex, setSelectedArtworkIndex] = useState(0);
 	const [selectedThumbnailIndex, setSelectedThumbnailIndex] = useState(0);
 
-  // Transaction state
-	const { data: hash, isPending, writeContract } = useWriteContract();
-	const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
+  	// Transaction state
+	const { data: hash, isPending, writeContract, error: writeError } = useWriteContract();
+	const { isLoading: isConfirming, isSuccess, error: receiptError } = useWaitForTransactionReceipt({
 		hash,
 	});
+
+
 
 	// Read token data from contract
 	const {
@@ -69,36 +72,38 @@ export default function Update() {
 		query: { enabled: !!creator && !!tokenId },
 	});
 
-	// Normalize ABI-inferred tuple to an object without manual interfaces
-	const token = useMemo(() => {
-		if (!tokenData) return undefined;
-		const [
-			metadata,
-			onChainThumbnail,
-			displayMode,
-			immutableProperties,
-			offchain,
-			selection,
-			metadataLocked,
-			thumbnailLocked,
-		] = tokenData;
-		return {
-			metadata,
-			onChainThumbnail,
-			displayMode,
-			immutableProperties,
-			offchain,
-			selection,
-			metadataLocked,
-			thumbnailLocked,
-		} as const;
-	}, [tokenData]);
+	// Read permissions separately
+	const { data: permissions } = useReadContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "getPermissions",
+		args: [creator, BigInt(tokenId || 0)],
+		query: { enabled: !!creator && !!tokenId },
+	});
+
+	// Read artwork data
+	const { data: artwork } = useReadContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "getArtwork",
+		args: [creator, BigInt(tokenId || 0)],
+		query: { enabled: !!creator && !!tokenId },
+	});
+
+	// Read thumbnail info
+	const { data: thumbnailInfo } = useReadContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "getThumbnailInfo",
+		args: [creator, BigInt(tokenId || 0)],
+		query: { enabled: !!creator && !!tokenId },
+	});
 
 	// Test contract connection with a simple view function
 	const { data: htmlTemplate, error: contractError } = useReadContract({
 		abi: multiplexAbi,
 		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-		functionName: "getHtmlTemplate",
+		functionName: "getDefaultHtmlTemplate",
 		args: [],
 		query: { enabled: true },
 	});
@@ -139,31 +144,33 @@ export default function Update() {
 			query: { enabled: !!creator && !!tokenId },
 		});
 
-	// Read artist thumbnail URIs
+	// Read thumbnail URIs (only for off-chain thumbnails)
 	const { data: artistThumbnailUris, refetch: refetchThumbnailUris } =
 		useReadContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "getArtistThumbnailUris",
+			functionName: "getThumbnailUris",
 			args: [creator, BigInt(tokenId || 0)],
-			query: { enabled: !!creator && !!tokenId },
+			query: { enabled: !!creator && !!tokenId && thumbnailInfo?.[0] === 1 },
 		});
 
-	// Initialize data from contract when tokenData loads
+	// Initialize data from contract when data loads
 	useEffect(() => {
-		if (token) {
-			setDisplayMode(Number(token.displayMode));
-			setSelectedArtworkIndex(Number(token.selection.selectedArtistArtworkIndex));
-			setSelectedThumbnailIndex(Number(token.selection.selectedArtistThumbnailIndex));
+		if (tokenData) {
+			setDisplayMode(Number(tokenData[4])); // displayMode
 		}
-	}, [token]);
+		if (artwork) {
+			setSelectedArtworkIndex(Number(artwork.selectedArtistUriIndex));
+		}
+		if (thumbnailInfo) {
+			setSelectedThumbnailIndex(Number(thumbnailInfo[1]));
+		}
+	}, [tokenData, artwork, thumbnailInfo]);
 
 	// Derived state from contract data
-	const isOnChainThumbnail = token
-		? !token.immutableProperties.useOffchainThumbnail
-		: true;
-	const isMetadataLocked = token ? token.metadataLocked : false;
-	const isThumbnailLocked = token ? token.thumbnailLocked : false;
+	const isOnChainThumbnail = thumbnailInfo ? thumbnailInfo[0] === 0 : true;
+	const hasArtistUpdateMetaPermission = permissions ? (Number(permissions.flags) & (1 << 1)) !== 0 : false;
+	const hasArtistUpdateThumbPermission = permissions ? (Number(permissions.flags) & (1 << 0)) !== 0 : false;
 
   const prepareThumbnail = useCallback(async (file: File) => {
 		setThumbnailFile(file);
@@ -236,22 +243,53 @@ export default function Update() {
 		return fields.join(",");
 	}, [name, description, externalUrl, attributes]);
 
+	// Simulate contract calls for error checking
+	const { error: simulateMetadataError } = useSimulateContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "updateMetadata",
+		args: [creator, BigInt(tokenId || 0), metadataJson],
+		query: { enabled: !!creator && !!tokenId && !!metadataJson && hasArtistUpdateMetaPermission },
+	});
+
+	const { error: simulateDisplayError } = useSimulateContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "setDisplayMode",
+		args: [creator, BigInt(tokenId || 0), displayMode],
+		query: { enabled: !!creator && !!tokenId },
+	});
+
 	// Contract interaction functions
-	const lockMetadata = () => {
+	const updateMetadata = () => {
+		if (!metadataJson) return;
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "lockMetadata",
-			args: [creator, BigInt(tokenId)],
+			functionName: "updateMetadata",
+			args: [creator, BigInt(tokenId), metadataJson],
 		});
 	};
 
-	const lockThumbnail = () => {
+	const updateThumbnail = () => {
+		if (!thumbnailFile || thumbChunks.length === 0) return;
+		const thumbnail = {
+			kind: 0, // ON_CHAIN
+			onChain: {
+				mimeType: thumbMime,
+				chunks: [] as Address[],
+				zipped: true,
+			},
+			offChain: {
+				uris: [] as string[],
+				selectedUriIndex: 0n,
+			},
+		};
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "lockThumbnail",
-			args: [creator, BigInt(tokenId)],
+			functionName: "updateThumbnail",
+			args: [creator, BigInt(tokenId), thumbnail, thumbChunks as readonly `0x${string}`[]],
 		});
 	};
 
@@ -260,7 +298,7 @@ export default function Update() {
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "addArtistArtworkUris",
+			functionName: "addArtworkUris",
 			args: [creator, BigInt(tokenId), [newArtworkUri.trim()]],
 		});
 		setNewArtworkUri("");
@@ -270,125 +308,50 @@ export default function Update() {
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "removeArtistArtworkUri",
-			args: [creator, BigInt(tokenId), BigInt(index)],
+			functionName: "removeArtworkUris",
+			args: [creator, BigInt(tokenId), [BigInt(index)]],
 		});
 	};
 
-	const addThumbnailUri = () => {
-		if (!newThumbnailUri.trim()) return;
-		writeContract({
-			abi: multiplexAbi,
-			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "addArtistThumbnailUris",
-			args: [creator, BigInt(tokenId), [newThumbnailUri.trim()]],
-		});
-		setNewThumbnailUri("");
-	};
-
-	const removeThumbnailUri = (index: number) => {
-		writeContract({
-			abi: multiplexAbi,
-			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "removeArtistThumbnailUri",
-			args: [creator, BigInt(tokenId), BigInt(index)],
-		});
-	};
+	// Note: The new contract doesn't have separate methods for thumbnail URIs
+	// Thumbnail URIs must be updated via updateThumbnail with off-chain type
 
 	const updateDisplayMode = () => {
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "updateToken",
-			args: [
-				creator,
-				BigInt(tokenId),
-				{
-					metadata: "",
-					updateMetadata: false,
-					thumbnailChunks: [],
-					thumbnailOptions: {
-						mimeType: "",
-						chunks: [],
-						length: 0n,
-						zipped: false,
-						deflated: false,
-					},
-					updateThumbnail: false,
-					displayMode,
-					updateDisplayMode: true,
-					selectedArtistArtworkIndex: 0n,
-					updateSelectedArtistArtwork: false,
-					selectedArtistThumbnailIndex: 0n,
-					updateSelectedArtistThumbnail: false,
-				},
-			],
+			functionName: "setDisplayMode",
+			args: [creator, BigInt(tokenId), displayMode],
 		});
 	};
 
-	const updateSelection = (type: "artwork" | "thumbnail") => {
-		const params = {
-			metadata: "",
-			updateMetadata: false,
-			thumbnailChunks: [],
-			thumbnailOptions: {
-				mimeType: "",
-				chunks: [],
-				length: 0n,
-				zipped: false,
-				deflated: false,
-			},
-			updateThumbnail: false,
-			displayMode: 0,
-			updateDisplayMode: false,
-			selectedArtistArtworkIndex:
-				type === "artwork" ? BigInt(selectedArtworkIndex) : 0n,
-			updateSelectedArtistArtwork: type === "artwork",
-			selectedArtistThumbnailIndex:
-				type === "thumbnail" ? BigInt(selectedThumbnailIndex) : 0n,
-			updateSelectedArtistThumbnail: type === "thumbnail",
-		};
-
+	const updateArtworkSelection = () => {
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "updateToken",
-			args: [creator, BigInt(tokenId), params],
+			functionName: "setSelectedUri",
+			args: [creator, BigInt(tokenId), BigInt(selectedArtworkIndex)],
 		});
 	};
 
-	const updateParams = useMemo(
-		() => ({
-    metadata: metadataJson,
-    updateMetadata: metadataJson.length > 0,
-			thumbnailChunks: thumbChunks as readonly `0x${string}`[],
-    thumbnailOptions: {
-				mimeType: thumbMime || "",
-				chunks: [] as readonly Address[], // This will be populated by the contract
-      length: BigInt(thumbLength || 0),
-				zipped: true,
-				deflated: false,
-    },
-    updateThumbnail: thumbChunks.length > 0,
-    displayMode: 0, // Default, not updating
-    updateDisplayMode: false,
-    selectedArtistArtworkIndex: BigInt(0),
-    updateSelectedArtistArtwork: false,
-    selectedArtistThumbnailIndex: BigInt(0),
-    updateSelectedArtistThumbnail: false,
-		}),
-		[metadataJson, thumbMime, thumbChunks, thumbLength]
-	);
-
-  const onSubmit = (e: React.FormEvent) => {
-		e.preventDefault();
-    
-    writeContract({
+	const updateThumbnailSelection = () => {
+		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "updateToken",
-      args: [creator, BigInt(tokenId), updateParams],
+			functionName: "setSelectedThumbnailUri",
+			args: [creator, BigInt(tokenId), BigInt(selectedThumbnailIndex)],
 		});
+	};
+
+	// Direct form submission handlers
+	const onSubmitMetadata = (e: React.FormEvent) => {
+		e.preventDefault();
+		updateMetadata();
+	};
+
+	const onSubmitThumbnail = (e: React.FormEvent) => {
+		e.preventDefault();
+		updateThumbnail();
 	};
 
 	// Effect to refetch data after successful transactions
@@ -498,17 +461,17 @@ export default function Update() {
 								<div className="flex gap-4 mt-2">
 									<span
 										className={`text-sm ${
-											isMetadataLocked ? "text-red-400" : "text-green-400"
+											!hasArtistUpdateMetaPermission ? "text-red-400" : "text-green-400"
 										}`}
 									>
-										Metadata: {isMetadataLocked ? "Locked" : "Unlocked"}
+										Metadata: {!hasArtistUpdateMetaPermission ? "No Permission" : "Can Update"}
 									</span>
 									<span
 										className={`text-sm ${
-											isThumbnailLocked ? "text-red-400" : "text-green-400"
+											!hasArtistUpdateThumbPermission ? "text-red-400" : "text-green-400"
 										}`}
 									>
-										Thumbnail: {isThumbnailLocked ? "Locked" : "Unlocked"}
+										Thumbnail: {!hasArtistUpdateThumbPermission ? "No Permission" : "Can Update"}
 									</span>
 									<span className="text-sm text-zinc-400">
 										Thumbnail Type:{" "}
@@ -551,27 +514,16 @@ export default function Update() {
 				{
 					(tokenData && (
 						<div className="space-y-8">
-							{/* Metadata Updates */}
-							<form onSubmit={onSubmit}>
+												{/* Metadata Updates */}
+					<form onSubmit={onSubmitMetadata}>
       <div className="card">
-									<div className="flex justify-between items-center mb-4">
-										<h3 className="text-lg font-semibold text-zinc-100">
-											2. Update Metadata
-										</h3>
-										{!isMetadataLocked && (
-											<button
-												type="button"
-												onClick={lockMetadata}
-												className="btn-ghost text-red-400 hover:text-red-300"
-											>
-												🔒 Lock Metadata
-											</button>
-										)}
-									</div>
+									<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+										2. Update Metadata
+									</h3>
 
-									{isMetadataLocked ? (
+									{!hasArtistUpdateMetaPermission ? (
 										<p className="text-red-400">
-											Metadata is locked and cannot be updated.
+											You don't have permission to update metadata.
 										</p>
 									) : (
 										<>
@@ -672,10 +624,17 @@ export default function Update() {
 											</div>
 
 											<div className="flex justify-end mt-6">
+												{simulateMetadataError && (
+													<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
+														<p className="text-sm text-orange-300 font-medium">Update will fail:</p>
+														<p className="text-xs text-orange-200 mt-1">{simulateMetadataError.message}</p>
+													</div>
+												)}
+
 												<button
 													type="submit"
 													className="btn-primary"
-													disabled={!metadataJson || isPending || isConfirming}
+													disabled={!metadataJson || isPending || isConfirming || !hasArtistUpdateMetaPermission || !!simulateMetadataError}
 												>
 													{isPending || isConfirming
 														? "Updating..."
@@ -704,13 +663,21 @@ export default function Update() {
 											<option value={1}>Interactive HTML</option>
 										</select>
 									</div>
-									<button
-										type="button"
-										onClick={updateDisplayMode}
-										className="btn-secondary"
-									>
-										Update Display Mode
-									</button>
+																			{simulateDisplayError && (
+											<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
+												<p className="text-sm text-orange-300 font-medium">Update will fail:</p>
+												<p className="text-xs text-orange-200 mt-1">{simulateDisplayError.message}</p>
+											</div>
+										)}
+
+										<button
+											type="button"
+											onClick={updateDisplayMode}
+											className="btn-secondary"
+											disabled={!!simulateDisplayError || isPending || isConfirming}
+										>
+											{isPending || isConfirming ? "Updating..." : "Update Display Mode"}
+										</button>
 								</div>
 							</div>
 
@@ -783,7 +750,7 @@ export default function Update() {
 												/>
 												<button
 													type="button"
-													onClick={() => updateSelection("artwork")}
+													onClick={updateArtworkSelection}
 													className="btn-secondary mt-2"
 												>
 													Update Selection
@@ -796,30 +763,19 @@ export default function Update() {
 
 							{/* Thumbnail Management */}
       <div className="card">
-								<div className="flex justify-between items-center mb-4">
-									<h3 className="text-lg font-semibold text-zinc-100">
-										5. Thumbnail Management
-									</h3>
-									{!isThumbnailLocked && (
-										<button
-											type="button"
-											onClick={lockThumbnail}
-											className="btn-ghost text-red-400 hover:text-red-300"
-										>
-											🔒 Lock Thumbnail
-										</button>
-									)}
-								</div>
+								<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+									5. Thumbnail Management
+								</h3>
 
-								{isThumbnailLocked ? (
+								{!hasArtistUpdateThumbPermission ? (
 									<p className="text-red-400">
-										Thumbnail is locked and cannot be updated.
+										You don't have permission to update thumbnails.
 									</p>
-								) : isOnChainThumbnail ? (
-									<div>
-										<p className="text-zinc-400 mb-4">
-											Upload a new on-chain thumbnail file
-										</p>
+																) : isOnChainThumbnail ? (
+										<form onSubmit={onSubmitThumbnail}>
+											<p className="text-zinc-400 mb-4">
+												Upload a new on-chain thumbnail file
+											</p>
 										<div
 											className={`upload-zone ${thumbnailFile ? "active" : ""}`}
 											onDragOver={(e) => {
@@ -887,7 +843,14 @@ export default function Update() {
             </>
           )}
         </div>
-      </div>
+										<button
+											type="submit"
+											className="btn-primary mt-4 w-full"
+											disabled={!thumbnailFile || thumbChunks.length === 0 || isPending || isConfirming}
+										>
+											{isPending || isConfirming ? "Updating..." : "Update Thumbnail"}
+										</button>
+									</form>
 								) : (
 									<div className="space-y-4">
 										<p className="text-zinc-400">
@@ -900,13 +863,14 @@ export default function Update() {
 												value={newThumbnailUri}
 												onChange={(e) => setNewThumbnailUri(e.target.value)}
 											/>
-											<button
-												type="button"
-												onClick={addThumbnailUri}
-												className="btn-primary"
-											>
-												Add
-											</button>
+																							<button
+													type="button"
+													disabled
+													className="btn-primary opacity-50 cursor-not-allowed"
+													title="Not available in this version"
+												>
+													Add
+												</button>
       </div>
 
 										{
@@ -925,13 +889,7 @@ export default function Update() {
 																	<span className="flex-1 text-sm font-mono text-zinc-300 break-all">
 																		{uri}
 																	</span>
-																	<button
-																		type="button"
-																		onClick={() => removeThumbnailUri(index)}
-																		className="btn-ghost text-red-400 hover:text-red-300 p-1"
-																	>
-																		✕
-        </button>
+																	
 																</div>
 															)
 														)}
@@ -960,7 +918,7 @@ export default function Update() {
 														/>
         <button
 															type="button"
-															onClick={() => updateSelection("thumbnail")}
+															onClick={updateThumbnailSelection}
 															className="btn-secondary mt-2"
 														>
 															Update Selection
@@ -981,6 +939,24 @@ export default function Update() {
           Transaction submitted. Waiting for confirmation...
         </div>
       )}
+
+				{writeError && (
+					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
+						<div className="text-center py-4">
+							<h3 className="text-lg text-red-300 mb-2">Transaction Error</h3>
+							<p className="text-red-200 text-sm mb-2">{writeError.message}</p>
+						</div>
+					</div>
+				)}
+
+				{receiptError && (
+					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
+						<div className="text-center py-4">
+							<h3 className="text-lg text-red-300 mb-2">Receipt Error</h3>
+							<p className="text-red-200 text-sm">{receiptError.message}</p>
+						</div>
+					</div>
+				)}
 
 				{/* Loading and Error Messages */}
 				{tokenDataLoading && tokenId && (

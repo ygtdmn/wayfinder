@@ -17,6 +17,13 @@ export const ierc1155CreatorCoreAbi = [
     outputs: [],
     stateMutability: "nonpayable",
   },
+  {
+    type: "function",
+    name: "getExtensions",
+    inputs: [],
+    outputs: [{ name: "", type: "address[]", internalType: "address[]" }],
+    stateMutability: "view",
+  },
 ] as const;
 
 

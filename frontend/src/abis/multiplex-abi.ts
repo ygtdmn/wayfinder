@@ -1,781 +1,989 @@
 // Complete Multiplex ABI with as const for proper type inference
-export const multiplexAbi = 
-[
-  {
-    "type": "function",
-    "name": "addArtistArtworkUris",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "uris",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "addArtistThumbnailUris",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "uris",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "addCollectorArtworkUris",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "uris",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "getArtistArtworkUris",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getArtistThumbnailUris",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getCollectorArtworkUris",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string[]",
-        "internalType": "string[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getHtmlTemplate",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "lockMetadata",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "lockThumbnail",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "mintERC1155",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "params",
-        "type": "tuple",
-        "internalType": "struct Multiplex.MintERC1155Params",
-        "components": [
-          {
-            "name": "baseParams",
-            "type": "tuple",
-            "internalType": "struct Multiplex.MintParams",
-            "components": [
-              {
-                "name": "metadata",
-                "type": "string",
-                "internalType": "string"
-              },
-              {
-                "name": "onChainThumbnail",
-                "type": "tuple",
-                "internalType": "struct Multiplex.File",
-                "components": [
-                  {
-                    "name": "mimeType",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "chunks",
-                    "type": "address[]",
-                    "internalType": "address[]"
-                  },
-                  {
-                    "name": "length",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                  },
-                  {
-                    "name": "zipped",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "deflated",
-                    "type": "bool",
-                    "internalType": "bool"
-                  }
-                ]
-              },
-              {
-                "name": "initialDisplayMode",
-                "type": "uint8",
-                "internalType": "enum Multiplex.DisplayMode"
-              },
-              {
-                "name": "immutableProperties",
-                "type": "tuple",
-                "internalType": "struct Multiplex.ImmutableProperties",
-                "components": [
-                  {
-                    "name": "imageHash",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "imageMimeType",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "isAnimationUri",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "useOffchainThumbnail",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorAddArtwork",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorSelectArtistArtwork",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorSelectArtistThumbnail",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorToggleDisplayMode",
-                    "type": "bool",
-                    "internalType": "bool"
-                  }
-                ]
-              },
-              {
-                "name": "seedArtistArtworkUris",
-                "type": "string[]",
-                "internalType": "string[]"
-              },
-              {
-                "name": "seedArtistThumbnailUris",
-                "type": "string[]",
-                "internalType": "string[]"
-              }
-            ]
-          },
-          {
-            "name": "recipients",
-            "type": "address[]",
-            "internalType": "address[]"
-          },
-          {
-            "name": "quantities",
-            "type": "uint256[]",
-            "internalType": "uint256[]"
-          }
-        ]
-      },
-      {
-        "name": "thumbnailChunks",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "payable"
-  },
-  {
-    "type": "function",
-    "name": "mintERC721",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "params",
-        "type": "tuple",
-        "internalType": "struct Multiplex.MintERC721Params",
-        "components": [
-          {
-            "name": "baseParams",
-            "type": "tuple",
-            "internalType": "struct Multiplex.MintParams",
-            "components": [
-              {
-                "name": "metadata",
-                "type": "string",
-                "internalType": "string"
-              },
-              {
-                "name": "onChainThumbnail",
-                "type": "tuple",
-                "internalType": "struct Multiplex.File",
-                "components": [
-                  {
-                    "name": "mimeType",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "chunks",
-                    "type": "address[]",
-                    "internalType": "address[]"
-                  },
-                  {
-                    "name": "length",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                  },
-                  {
-                    "name": "zipped",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "deflated",
-                    "type": "bool",
-                    "internalType": "bool"
-                  }
-                ]
-              },
-              {
-                "name": "initialDisplayMode",
-                "type": "uint8",
-                "internalType": "enum Multiplex.DisplayMode"
-              },
-              {
-                "name": "immutableProperties",
-                "type": "tuple",
-                "internalType": "struct Multiplex.ImmutableProperties",
-                "components": [
-                  {
-                    "name": "imageHash",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "imageMimeType",
-                    "type": "string",
-                    "internalType": "string"
-                  },
-                  {
-                    "name": "isAnimationUri",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "useOffchainThumbnail",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorAddArtwork",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorSelectArtistArtwork",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorSelectArtistThumbnail",
-                    "type": "bool",
-                    "internalType": "bool"
-                  },
-                  {
-                    "name": "allowCollectorToggleDisplayMode",
-                    "type": "bool",
-                    "internalType": "bool"
-                  }
-                ]
-              },
-              {
-                "name": "seedArtistArtworkUris",
-                "type": "string[]",
-                "internalType": "string[]"
-              },
-              {
-                "name": "seedArtistThumbnailUris",
-                "type": "string[]",
-                "internalType": "string[]"
-              }
-            ]
-          },
-          {
-            "name": "recipients",
-            "type": "address[]",
-            "internalType": "address[]"
-          }
-        ]
-      },
-      {
-        "name": "thumbnailChunks",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "payable"
-  },
-  {
-    "type": "function",
-    "name": "removeArtistArtworkUri",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "index",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "removeArtistThumbnailUri",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "index",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "tokenData",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "metadata",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "onChainThumbnail",
-        "type": "tuple",
-        "internalType": "struct Multiplex.File",
-        "components": [
-          {
-            "name": "mimeType",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "chunks",
-            "type": "address[]",
-            "internalType": "address[]"
-          },
-          {
-            "name": "length",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "zipped",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "deflated",
-            "type": "bool",
-            "internalType": "bool"
-          }
-        ]
-      },
-      {
-        "name": "displayMode",
-        "type": "uint8",
-        "internalType": "enum Multiplex.DisplayMode"
-      },
-      {
-        "name": "immutableProperties",
-        "type": "tuple",
-        "internalType": "struct Multiplex.ImmutableProperties",
-        "components": [
-          {
-            "name": "imageHash",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "imageMimeType",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "isAnimationUri",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "useOffchainThumbnail",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "allowCollectorAddArtwork",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "allowCollectorSelectArtistArtwork",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "allowCollectorSelectArtistThumbnail",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "allowCollectorToggleDisplayMode",
-            "type": "bool",
-            "internalType": "bool"
-          }
-        ]
-      },
-      {
-        "name": "offchain",
-        "type": "tuple",
-        "internalType": "struct Multiplex.OffChainData",
-        "components": [
-          {
-            "name": "artistArtworkUris",
-            "type": "string[]",
-            "internalType": "string[]"
-          },
-          {
-            "name": "collectorArtworkUris",
-            "type": "string[]",
-            "internalType": "string[]"
-          },
-          {
-            "name": "artistThumbnailUris",
-            "type": "string[]",
-            "internalType": "string[]"
-          }
-        ]
-      },
-      {
-        "name": "selection",
-        "type": "tuple",
-        "internalType": "struct Multiplex.Selection",
-        "components": [
-          {
-            "name": "selectedArtistArtworkIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "selectedArtistThumbnailIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
-      },
-      {
-        "name": "metadataLocked",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "thumbnailLocked",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "updateToken",
-    "inputs": [
-      {
-        "name": "creatorContractAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "params",
-        "type": "tuple",
-        "internalType": "struct Multiplex.UpdateParams",
-        "components": [
-          {
-            "name": "metadata",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "updateMetadata",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "thumbnailChunks",
-            "type": "bytes[]",
-            "internalType": "bytes[]"
-          },
-          {
-            "name": "thumbnailOptions",
-            "type": "tuple",
-            "internalType": "struct Multiplex.File",
-            "components": [
-              {
-                "name": "mimeType",
-                "type": "string",
-                "internalType": "string"
-              },
-              {
-                "name": "chunks",
-                "type": "address[]",
-                "internalType": "address[]"
-              },
-              {
-                "name": "length",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "zipped",
-                "type": "bool",
-                "internalType": "bool"
-              },
-              {
-                "name": "deflated",
-                "type": "bool",
-                "internalType": "bool"
-              }
-            ]
-          },
-          {
-            "name": "updateThumbnail",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "displayMode",
-            "type": "uint8",
-            "internalType": "enum Multiplex.DisplayMode"
-          },
-          {
-            "name": "updateDisplayMode",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "selectedArtistArtworkIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "updateSelectedArtistArtwork",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "selectedArtistThumbnailIndex",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "updateSelectedArtistThumbnail",
-            "type": "bool",
-            "internalType": "bool"
-          }
-        ]
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  }
+export const multiplexAbi = [
+	{
+		type: "constructor",
+		inputs: [
+			{ name: "_htmlTemplate", type: "string", internalType: "string" },
+			{ name: "_zipped", type: "bool", internalType: "bool" },
+		],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "addArtworkUris",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{ name: "uris", type: "string[]", internalType: "string[]" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "cancelOwnershipHandover",
+		inputs: [],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "completeOwnershipHandover",
+		inputs: [
+			{ name: "pendingOwner", type: "address", internalType: "address" },
+		],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "contractOperators",
+		inputs: [{ name: "", type: "address", internalType: "address" }],
+		outputs: [{ name: "", type: "address", internalType: "address" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getArtistArtworkUris",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string[]", internalType: "string[]" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getArtwork",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [
+			{
+				name: "",
+				type: "tuple",
+				internalType: "struct IMultiplex.Artwork",
+				components: [
+					{ name: "artistUris", type: "string[]", internalType: "string[]" },
+					{ name: "collectorUris", type: "string[]", internalType: "string[]" },
+					{ name: "mimeType", type: "string", internalType: "string" },
+					{ name: "fileHash", type: "string", internalType: "string" },
+					{ name: "isAnimationUri", type: "bool", internalType: "bool" },
+					{
+						name: "selectedArtistUriIndex",
+						type: "uint256",
+						internalType: "uint256",
+					},
+				],
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getCollectorArtworkUris",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string[]", internalType: "string[]" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getCombinedArtworkUris",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getDefaultHtmlTemplate",
+		inputs: [],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getPermissions",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [
+			{
+				name: "",
+				type: "tuple",
+				internalType: "struct IMultiplex.Permissions",
+				components: [{ name: "flags", type: "uint16", internalType: "uint16" }],
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getThumbnailInfo",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [
+			{
+				name: "thumbnailKind",
+				type: "uint8",
+				internalType: "enum IMultiplex.ThumbnailKind",
+			},
+			{ name: "selectedIndex", type: "uint256", internalType: "uint256" },
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getThumbnailUris",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string[]", internalType: "string[]" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "getTokenHtmlTemplate",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "initializeTokenData",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{
+				name: "config",
+				type: "tuple",
+				internalType: "struct IMultiplex.InitConfig",
+				components: [
+					{ name: "metadata", type: "string", internalType: "string" },
+					{
+						name: "artwork",
+						type: "tuple",
+						internalType: "struct IMultiplex.Artwork",
+						components: [
+							{
+								name: "artistUris",
+								type: "string[]",
+								internalType: "string[]",
+							},
+							{
+								name: "collectorUris",
+								type: "string[]",
+								internalType: "string[]",
+							},
+							{ name: "mimeType", type: "string", internalType: "string" },
+							{ name: "fileHash", type: "string", internalType: "string" },
+							{ name: "isAnimationUri", type: "bool", internalType: "bool" },
+							{
+								name: "selectedArtistUriIndex",
+								type: "uint256",
+								internalType: "uint256",
+							},
+						],
+					},
+					{
+						name: "thumbnail",
+						type: "tuple",
+						internalType: "struct IMultiplex.Thumbnail",
+						components: [
+							{
+								name: "kind",
+								type: "uint8",
+								internalType: "enum IMultiplex.ThumbnailKind",
+							},
+							{
+								name: "onChain",
+								type: "tuple",
+								internalType: "struct IMultiplex.OnChainThumbnail",
+								components: [
+									{ name: "mimeType", type: "string", internalType: "string" },
+									{
+										name: "chunks",
+										type: "address[]",
+										internalType: "address[]",
+									},
+									{ name: "zipped", type: "bool", internalType: "bool" },
+								],
+							},
+							{
+								name: "offChain",
+								type: "tuple",
+								internalType: "struct IMultiplex.OffChainThumbnail",
+								components: [
+									{ name: "uris", type: "string[]", internalType: "string[]" },
+									{
+										name: "selectedUriIndex",
+										type: "uint256",
+										internalType: "uint256",
+									},
+								],
+							},
+						],
+					},
+					{
+						name: "displayMode",
+						type: "uint8",
+						internalType: "enum IMultiplex.DisplayMode",
+					},
+					{
+						name: "permissions",
+						type: "tuple",
+						internalType: "struct IMultiplex.Permissions",
+						components: [
+							{ name: "flags", type: "uint16", internalType: "uint16" },
+						],
+					},
+				],
+			},
+			{ name: "thumbnailChunks", type: "bytes[]", internalType: "bytes[]" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "isContractOperator",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "operatorAddress", type: "address", internalType: "address" },
+		],
+		outputs: [{ name: "", type: "bool", internalType: "bool" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "lockRescue",
+		inputs: [{ name: "locksToSet", type: "uint256", internalType: "uint256" }],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "owner",
+		inputs: [],
+		outputs: [{ name: "result", type: "address", internalType: "address" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "ownershipHandoverExpiresAt",
+		inputs: [
+			{ name: "pendingOwner", type: "address", internalType: "address" },
+		],
+		outputs: [{ name: "result", type: "uint256", internalType: "uint256" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "registerContract",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "operatorAddress", type: "address", internalType: "address" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "removeArtworkUris",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{ name: "indices", type: "uint256[]", internalType: "uint256[]" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "renderHTML",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "renderImage",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "renderMetadata",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "renderRawHTML",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "renderRawImage",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "", type: "bytes", internalType: "bytes" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "renounceOwnership",
+		inputs: [],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "requestOwnershipHandover",
+		inputs: [],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "rescueERC1155",
+		inputs: [
+			{ name: "token", type: "address", internalType: "address" },
+			{ name: "to", type: "address", internalType: "address" },
+			{ name: "id", type: "uint256", internalType: "uint256" },
+			{ name: "amount", type: "uint256", internalType: "uint256" },
+			{ name: "data", type: "bytes", internalType: "bytes" },
+		],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "rescueERC20",
+		inputs: [
+			{ name: "token", type: "address", internalType: "address" },
+			{ name: "to", type: "address", internalType: "address" },
+			{ name: "amount", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "rescueERC6909",
+		inputs: [
+			{ name: "token", type: "address", internalType: "address" },
+			{ name: "to", type: "address", internalType: "address" },
+			{ name: "id", type: "uint256", internalType: "uint256" },
+			{ name: "amount", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "rescueERC721",
+		inputs: [
+			{ name: "token", type: "address", internalType: "address" },
+			{ name: "to", type: "address", internalType: "address" },
+			{ name: "id", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "rescueETH",
+		inputs: [
+			{ name: "to", type: "address", internalType: "address" },
+			{ name: "amount", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "rescueLocked",
+		inputs: [],
+		outputs: [{ name: "locks", type: "uint256", internalType: "uint256" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "revokeAllArtistPermissions",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "revokeArtistPermissions",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{ name: "revokeUpdateThumbnail", type: "bool", internalType: "bool" },
+			{ name: "revokeUpdateMetadata", type: "bool", internalType: "bool" },
+			{ name: "revokeChooseUris", type: "bool", internalType: "bool" },
+			{ name: "revokeAddRemoveUris", type: "bool", internalType: "bool" },
+			{ name: "revokeChooseThumbnail", type: "bool", internalType: "bool" },
+			{ name: "revokeUpdateDisplayMode", type: "bool", internalType: "bool" },
+			{ name: "revokeUpdateTemplate", type: "bool", internalType: "bool" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "setDefaultHtmlTemplate",
+		inputs: [
+			{ name: "templateParts", type: "string[]", internalType: "string[]" },
+			{ name: "zipped", type: "bool", internalType: "bool" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "setDisplayMode",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{
+				name: "displayMode",
+				type: "uint8",
+				internalType: "enum IMultiplex.DisplayMode",
+			},
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "setSelectedThumbnailUri",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{ name: "index", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "setSelectedUri",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{ name: "index", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "tokenData",
+		inputs: [
+			{ name: "", type: "address", internalType: "address" },
+			{ name: "", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [
+			{ name: "metadata", type: "string", internalType: "string" },
+			{
+				name: "thumbnail",
+				type: "tuple",
+				internalType: "struct IMultiplex.Thumbnail",
+				components: [
+					{
+						name: "kind",
+						type: "uint8",
+						internalType: "enum IMultiplex.ThumbnailKind",
+					},
+					{
+						name: "onChain",
+						type: "tuple",
+						internalType: "struct IMultiplex.OnChainThumbnail",
+						components: [
+							{ name: "mimeType", type: "string", internalType: "string" },
+							{ name: "chunks", type: "address[]", internalType: "address[]" },
+							{ name: "zipped", type: "bool", internalType: "bool" },
+						],
+					},
+					{
+						name: "offChain",
+						type: "tuple",
+						internalType: "struct IMultiplex.OffChainThumbnail",
+						components: [
+							{ name: "uris", type: "string[]", internalType: "string[]" },
+							{
+								name: "selectedUriIndex",
+								type: "uint256",
+								internalType: "uint256",
+							},
+						],
+					},
+				],
+			},
+			{
+				name: "artwork",
+				type: "tuple",
+				internalType: "struct IMultiplex.Artwork",
+				components: [
+					{ name: "artistUris", type: "string[]", internalType: "string[]" },
+					{ name: "collectorUris", type: "string[]", internalType: "string[]" },
+					{ name: "mimeType", type: "string", internalType: "string" },
+					{ name: "fileHash", type: "string", internalType: "string" },
+					{ name: "isAnimationUri", type: "bool", internalType: "bool" },
+					{
+						name: "selectedArtistUriIndex",
+						type: "uint256",
+						internalType: "uint256",
+					},
+				],
+			},
+			{
+				name: "permissions",
+				type: "tuple",
+				internalType: "struct IMultiplex.Permissions",
+				components: [{ name: "flags", type: "uint16", internalType: "uint16" }],
+			},
+			{
+				name: "displayMode",
+				type: "uint8",
+				internalType: "enum IMultiplex.DisplayMode",
+			},
+			{
+				name: "htmlTemplate",
+				type: "tuple",
+				internalType: "struct IMultiplex.HtmlTemplate",
+				components: [
+					{ name: "chunks", type: "address[]", internalType: "address[]" },
+					{ name: "zipped", type: "bool", internalType: "bool" },
+				],
+			},
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "transferOwnership",
+		inputs: [{ name: "newOwner", type: "address", internalType: "address" }],
+		outputs: [],
+		stateMutability: "payable",
+	},
+	{
+		type: "function",
+		name: "updateHtmlTemplate",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{ name: "templateParts", type: "string[]", internalType: "string[]" },
+			{ name: "zipped", type: "bool", internalType: "bool" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "updateMetadata",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{ name: "newMetadata", type: "string", internalType: "string" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "updateThumbnail",
+		inputs: [
+			{ name: "contractAddress", type: "address", internalType: "address" },
+			{ name: "tokenId", type: "uint256", internalType: "uint256" },
+			{
+				name: "thumbnail",
+				type: "tuple",
+				internalType: "struct IMultiplex.Thumbnail",
+				components: [
+					{
+						name: "kind",
+						type: "uint8",
+						internalType: "enum IMultiplex.ThumbnailKind",
+					},
+					{
+						name: "onChain",
+						type: "tuple",
+						internalType: "struct IMultiplex.OnChainThumbnail",
+						components: [
+							{ name: "mimeType", type: "string", internalType: "string" },
+							{ name: "chunks", type: "address[]", internalType: "address[]" },
+							{ name: "zipped", type: "bool", internalType: "bool" },
+						],
+					},
+					{
+						name: "offChain",
+						type: "tuple",
+						internalType: "struct IMultiplex.OffChainThumbnail",
+						components: [
+							{ name: "uris", type: "string[]", internalType: "string[]" },
+							{
+								name: "selectedUriIndex",
+								type: "uint256",
+								internalType: "uint256",
+							},
+						],
+					},
+				],
+			},
+			{ name: "thumbnailChunks", type: "bytes[]", internalType: "bytes[]" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "event",
+		name: "ArtistPermissionsRevoked",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+			{
+				name: "artist",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "ArtworkUriRemoved",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+			{
+				name: "actor",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "index",
+				type: "uint256",
+				indexed: false,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "ArtworkUrisAdded",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+			{
+				name: "actor",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "count",
+				type: "uint256",
+				indexed: false,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "ContractRegistered",
+		inputs: [
+			{
+				name: "contractAddress",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "implementationAddress",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "registerer",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "DisplayModeUpdated",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+			{
+				name: "displayMode",
+				type: "uint8",
+				indexed: false,
+				internalType: "enum IMultiplex.DisplayMode",
+			},
+		],
+		anonymous: false,
+	},
+	{ type: "event", name: "HtmlTemplateUpdated", inputs: [], anonymous: false },
+	{
+		type: "event",
+		name: "MetadataUpdated",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "OwnershipHandoverCanceled",
+		inputs: [
+			{
+				name: "pendingOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "OwnershipHandoverRequested",
+		inputs: [
+			{
+				name: "pendingOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "OwnershipTransferred",
+		inputs: [
+			{
+				name: "oldOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "newOwner",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "SelectedArtworkUriChanged",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+			{
+				name: "newIndex",
+				type: "uint256",
+				indexed: false,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "SelectedThumbnailUriChanged",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+			{
+				name: "newIndex",
+				type: "uint256",
+				indexed: false,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "ThumbnailUpdated",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{
+		type: "event",
+		name: "TokenDataInitialized",
+		inputs: [
+			{
+				name: "creator",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{
+				name: "tokenId",
+				type: "uint256",
+				indexed: true,
+				internalType: "uint256",
+			},
+		],
+		anonymous: false,
+	},
+	{ type: "error", name: "AlreadyInitialized", inputs: [] },
+	{ type: "error", name: "ArtistPermissionRevoked", inputs: [] },
+	{ type: "error", name: "CollectorPermissionDenied", inputs: [] },
+	{ type: "error", name: "ContractNotRegistered", inputs: [] },
+	{ type: "error", name: "InvalidArtworkUris", inputs: [] },
+	{ type: "error", name: "InvalidFileHash", inputs: [] },
+	{ type: "error", name: "InvalidIndexRange", inputs: [] },
+	{ type: "error", name: "InvalidInterface", inputs: [] },
+	{ type: "error", name: "InvalidMetadata", inputs: [] },
+	{ type: "error", name: "InvalidMimeType", inputs: [] },
+	{ type: "error", name: "InvalidSelectedArtistUriIndex", inputs: [] },
+	{ type: "error", name: "InvalidSelectedThumbnailUriIndex", inputs: [] },
+	{ type: "error", name: "InvalidThumbnailKind", inputs: [] },
+	{ type: "error", name: "NewOwnerIsZeroAddress", inputs: [] },
+	{ type: "error", name: "NoHandoverRequest", inputs: [] },
+	{ type: "error", name: "NotTokenOwner", inputs: [] },
+	{ type: "error", name: "NotTokenOwnerOrAdmin", inputs: [] },
+	{ type: "error", name: "OnChainThumbnailEmpty", inputs: [] },
+	{ type: "error", name: "RescueTransferFailed", inputs: [] },
+	{ type: "error", name: "RescueUnauthorizedOrLocked", inputs: [] },
+	{ type: "error", name: "Unauthorized", inputs: [] },
+	{ type: "error", name: "UnauthorizedOperator", inputs: [] },
+	{ type: "error", name: "WalletNotAdmin", inputs: [] },
 ] as const;

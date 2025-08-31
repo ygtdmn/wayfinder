@@ -21,7 +21,7 @@ export default function CollectorZone() {
 	const [displayMode, setDisplayMode] = useState(1);
 
 	// URI management for collectors
-	const [newCollectorArtworkUri, setNewCollectorArtworkUri] = useState("");
+	const [newArtworkUri, setNewArtworkUri] = useState("");
 
 	// Selection updates
 	const [selectedArtworkIndex, setSelectedArtworkIndex] = useState(0);
@@ -47,30 +47,32 @@ export default function CollectorZone() {
 		query: { enabled: !!creator && !!tokenId },
 	});
 
-	// Normalize ABI-inferred tuple to an object without manual interfaces
-	const token = useMemo(() => {
-		if (!tokenData) return undefined;
-		const [
-			metadata,
-			onChainThumbnail,
-			displayMode,
-			immutableProperties,
-			offchain,
-			selection,
-			metadataLocked,
-			thumbnailLocked,
-		] = tokenData;
-		return {
-			metadata,
-			onChainThumbnail,
-			displayMode,
-			immutableProperties,
-			offchain,
-			selection,
-			metadataLocked,
-			thumbnailLocked,
-		} as const;
-	}, [tokenData]);
+	// Read permissions separately
+	const { data: permissions } = useReadContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "getPermissions",
+		args: [creator, BigInt(tokenId || 0)],
+		query: { enabled: !!creator && !!tokenId },
+	});
+
+	// Read artwork data
+	const { data: artwork } = useReadContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "getArtwork",
+		args: [creator, BigInt(tokenId || 0)],
+		query: { enabled: !!creator && !!tokenId },
+	});
+
+	// Read thumbnail info
+	const { data: thumbnailInfo } = useReadContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "getThumbnailInfo",
+		args: [creator, BigInt(tokenId || 0)],
+		query: { enabled: !!creator && !!tokenId },
+	});
 
 	// Read artist artwork URIs
 	const { data: artistArtworkUris, refetch: refetchArtworkUris } =
@@ -97,7 +99,7 @@ export default function CollectorZone() {
 		useReadContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "getArtistThumbnailUris",
+			functionName: "getThumbnailUris",
 			args: [creator, BigInt(tokenId || 0)],
 			query: { enabled: !!creator && !!tokenId },
 		});
@@ -106,35 +108,39 @@ export default function CollectorZone() {
 	const { data: htmlTemplate, error: contractError } = useReadContract({
 		abi: multiplexAbi,
 		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-		functionName: "getHtmlTemplate",
+		functionName: "getDefaultHtmlTemplate",
 		args: [],
 		query: { enabled: true },
 	});
 
 
 
-	// Initialize data from contract when tokenData loads
+	// Initialize data from contract when data loads
 	useEffect(() => {
-		if (token) {
-			setDisplayMode(Number(token.displayMode));
-			setSelectedArtworkIndex(Number(token.selection.selectedArtistArtworkIndex));
-			setSelectedThumbnailIndex(Number(token.selection.selectedArtistThumbnailIndex));
+		if (tokenData) {
+			setDisplayMode(Number(tokenData[4])); // displayMode
 		}
-	}, [token]);
+		if (artwork) {
+			setSelectedArtworkIndex(Number(artwork.selectedArtistUriIndex));
+		}
+		if (thumbnailInfo) {
+			setSelectedThumbnailIndex(Number(thumbnailInfo[1]));
+		}
+	}, [tokenData, artwork, thumbnailInfo]);
 
 	// Derived permissions from contract data
-	const permissions = useMemo(() => {
-		const props = token?.immutableProperties;
+	const permissionsData = useMemo(() => {
+		const flags = permissions ? Number(permissions.flags) : 0;
 		return {
-			allowToggleDisplay: props?.allowCollectorToggleDisplayMode ?? false,
-			allowSelectArtwork: props?.allowCollectorSelectArtistArtwork ?? false,
-			allowSelectThumbnail: props?.allowCollectorSelectArtistThumbnail ?? false,
-			allowAddArtwork: props?.allowCollectorAddArtwork ?? false,
+			allowToggleDisplay: (flags & (1 << 10)) !== 0,
+			allowSelectArtwork: (flags & (1 << 7)) !== 0,
+			allowSelectThumbnail: (flags & (1 << 9)) !== 0,
+			allowAddArtwork: (flags & (1 << 8)) !== 0,
 			isHtmlMode: displayMode === 1,
 		};
-	}, [token?.immutableProperties, displayMode]);
+	}, [permissions, displayMode]);
 
-	const { allowToggleDisplay, allowSelectArtwork, allowSelectThumbnail, allowAddArtwork, isHtmlMode } = permissions;
+	const { allowToggleDisplay, allowSelectArtwork, allowSelectThumbnail, allowAddArtwork, isHtmlMode } = permissionsData;
 
 	// Debug logging
 	useEffect(() => {
@@ -157,73 +163,38 @@ export default function CollectorZone() {
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "updateToken",
-			args: [
-				creator,
-				BigInt(tokenId),
-				{
-					metadata: "",
-					updateMetadata: false,
-					thumbnailChunks: [],
-					thumbnailOptions: {
-						mimeType: "",
-						chunks: [],
-						length: 0n,
-						zipped: false,
-						deflated: false,
-					},
-					updateThumbnail: false,
-					displayMode,
-					updateDisplayMode: true,
-					selectedArtistArtworkIndex: 0n,
-					updateSelectedArtistArtwork: false,
-					selectedArtistThumbnailIndex: 0n,
-					updateSelectedArtistThumbnail: false,
-				},
-			],
+			functionName: "setDisplayMode",
+			args: [creator, BigInt(tokenId), displayMode],
 		});
 	};
 
-	const updateSelection = (type: "artwork" | "thumbnail") => {
-		const params = {
-			metadata: "",
-			updateMetadata: false,
-			thumbnailChunks: [],
-			thumbnailOptions: {
-				mimeType: "",
-				chunks: [],
-				length: 0n,
-				zipped: false,
-				deflated: false,
-			},
-			updateThumbnail: false,
-			displayMode: 0,
-			updateDisplayMode: false,
-			selectedArtistArtworkIndex:
-				type === "artwork" ? BigInt(selectedArtworkIndex) : 0n,
-			updateSelectedArtistArtwork: type === "artwork",
-			selectedArtistThumbnailIndex:
-				type === "thumbnail" ? BigInt(selectedThumbnailIndex) : 0n,
-			updateSelectedArtistThumbnail: type === "thumbnail",
-		};
-
+	const updateArtworkSelection = () => {
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "updateToken",
-			args: [creator, BigInt(tokenId), params],
+			functionName: "setSelectedUri",
+			args: [creator, BigInt(tokenId), BigInt(selectedArtworkIndex)],
+		});
+	};
+
+	const updateThumbnailSelection = () => {
+		writeContract({
+			abi: multiplexAbi,
+			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+			functionName: "setSelectedThumbnailUri",
+			args: [creator, BigInt(tokenId), BigInt(selectedThumbnailIndex)],
 		});
 	};
 
 	const addCollectorArtworkUri = () => {
-		if (!newCollectorArtworkUri.trim()) return;
+		if (!newArtworkUri.trim()) return;
 		writeContract({
 			abi: multiplexAbi,
 			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
-			functionName: "addCollectorArtworkUris",
-			args: [creator, BigInt(tokenId), [newCollectorArtworkUri.trim()]],
+			functionName: "addArtworkUris",
+			args: [creator, BigInt(tokenId), [newArtworkUri.trim()]],
 		});
-		setNewCollectorArtworkUri("");
+		setNewArtworkUri("");
 	};
 
 	// Effect to refetch data after successful transactions
@@ -446,6 +417,7 @@ export default function CollectorZone() {
 				{tokenData &&
 				allowSelectArtwork &&
 				artistArtworkUris &&
+				Array.isArray(artistArtworkUris) &&
 				artistArtworkUris.length > 0 ? (
 					<div className="card">
 						<h3 className="text-lg font-semibold text-zinc-100 mb-4">
@@ -456,7 +428,7 @@ export default function CollectorZone() {
 								<p className="text-sm text-zinc-400">
 									Available artworks from artist:
 								</p>
-								{(artistArtworkUris).map((uri: string, index: number) => (
+								{artistArtworkUris.map((uri: string, index: number) => (
 									<div
 										key={index}
 										className="flex gap-2 items-center p-2 bg-zinc-800 rounded"
@@ -490,7 +462,7 @@ export default function CollectorZone() {
 							</div>
 							<button
 								type="button"
-								onClick={() => updateSelection("artwork")}
+																	onClick={updateArtworkSelection}
 								className="btn-primary"
 								disabled={isPending || isConfirming}
 							>
@@ -504,6 +476,7 @@ export default function CollectorZone() {
 				{tokenData &&
 				allowSelectThumbnail &&
 				artistThumbnailUris &&
+				Array.isArray(artistThumbnailUris) &&
 				artistThumbnailUris.length > 0 ? (
 					<div className="card">
 						<h3 className="text-lg font-semibold text-zinc-100 mb-4">
@@ -514,7 +487,7 @@ export default function CollectorZone() {
 								<p className="text-sm text-zinc-400">
 									Available thumbnails from artist:
 								</p>
-								{(artistThumbnailUris).map((uri: string, index: number) => (
+								{artistThumbnailUris.map((uri: string, index: number) => (
 									<div
 										key={index}
 										className="flex gap-2 items-center p-2 bg-zinc-800 rounded"
@@ -548,7 +521,7 @@ export default function CollectorZone() {
 							</div>
 							<button
 								type="button"
-								onClick={() => updateSelection("thumbnail")}
+																	onClick={updateThumbnailSelection}
 								className="btn-primary"
 								disabled={isPending || isConfirming}
 							>
@@ -569,8 +542,8 @@ export default function CollectorZone() {
 								<input
 									className="input-field flex-1"
 									placeholder="ipfs://... or https://..."
-									value={newCollectorArtworkUri}
-									onChange={(e) => setNewCollectorArtworkUri(e.target.value)}
+									value={newArtworkUri}
+									onChange={(e) => setNewArtworkUri(e.target.value)}
 								/>
 								<button
 									type="button"
