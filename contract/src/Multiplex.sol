@@ -166,11 +166,13 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
     /// @param tokenId The token ID to initialize
     /// @param config Initialization configuration
     /// @param thumbnailChunks On-chain thumbnail data chunks
+    /// @param htmlTemplateChunks HTML template chunks (if config.htmlTemplate has empty chunks, use these)
     function initializeTokenData(
         address contractAddress,
         uint256 tokenId,
         InitConfig calldata config,
-        bytes[] calldata thumbnailChunks
+        bytes[] calldata thumbnailChunks,
+        string[] calldata htmlTemplateChunks
     )
         external
         onlyRegisteredContract(contractAddress)
@@ -190,6 +192,19 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
 
         // Set thumbnail data
         token.thumbnail = config.thumbnail;
+
+        // Set HTML template data
+        token.htmlTemplate = config.htmlTemplate;
+
+        // If config.htmlTemplate has empty chunks but htmlTemplateChunks is provided, use the chunks
+        if (config.htmlTemplate.chunks.length == 0 && htmlTemplateChunks.length > 0) {
+            // Store HTML template chunks
+            for (uint256 i = 0; i < htmlTemplateChunks.length; i++) {
+                if (bytes(htmlTemplateChunks[i]).length > 0) {
+                    token.htmlTemplate.chunks.push(SSTORE2.write(bytes(htmlTemplateChunks[i])));
+                }
+            }
+        }
 
         // Metadata Checks
         if (bytes(config.metadata).length == 0) {

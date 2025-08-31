@@ -67,6 +67,11 @@ export default function Mint() {
 	const [artistArtworkUris, setArtistArtworkUris] = useState<string>("");
 	const [artistThumbnailUris, setArtistThumbnailUris] = useState<string>("");
 
+	// HTML Template
+	const [htmlTemplateFile, setHtmlTemplateFile] = useState<File | null>(null);
+	const [htmlTemplateContent, setHtmlTemplateContent] = useState<string>("");
+	const [htmlTemplateChunks, setHtmlTemplateChunks] = useState<string[]>([]);
+
 	// Recipients
 	const [recipients, setRecipients] = useState<string>("");
 	const [quantities, setQuantities] = useState<string>("");
@@ -139,7 +144,7 @@ export default function Mint() {
 		const compressed = fastlz.compress(new Uint8Array(buffer));
 		setThumbLength(buffer.byteLength);
 
-		const CHUNK_SIZE = 10 * 1024; // 23KB per chunk
+		const CHUNK_SIZE = 10 * 1024; // 10KB per chunk
 		const chunks: string[] = [];
 		for (let i = 0; i < compressed.length; i += CHUNK_SIZE) {
 			const chunk = compressed.slice(i, i + CHUNK_SIZE);
@@ -150,6 +155,26 @@ export default function Mint() {
 			);
 		}
 		setThumbChunks(chunks);
+	}, []);
+
+	const prepareHtmlTemplate = useCallback(async (file: File) => {
+		setHtmlTemplateFile(file);
+
+		// Read file content
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			const content = e.target?.result as string;
+			setHtmlTemplateContent(content);
+			
+			// For HTML templates, we store them as string chunks (not compressed)
+			const CHUNK_SIZE = 20 * 1024; // 20KB per chunk for text
+			const chunks: string[] = [];
+			for (let i = 0; i < content.length; i += CHUNK_SIZE) {
+				chunks.push(content.slice(i, i + CHUNK_SIZE));
+			}
+			setHtmlTemplateChunks(chunks);
+		};
+		reader.readAsText(file);
 	}, []);
 
 	const handleAddAttribute = () => {
@@ -304,6 +329,10 @@ export default function Mint() {
 			permissions: {
 				flags: permissionsFlags,
 			},
+			htmlTemplate: {
+				chunks: [] as readonly Address[], // Will be populated by contract
+				zipped: false, // HTML templates are stored as plain text
+			},
 		}),
 		[
 			metadataJson,
@@ -324,13 +353,13 @@ export default function Mint() {
 		abi: multiplexExtensionAbi,
 		address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 		functionName: "mintERC1155" as const,
-		args: [
-			creator,
-			recipientsArr,
-			quantitiesArr,
-			initConfig,
-			thumbChunks as readonly `0x${string}`[],
-		] as const,
+					args: [
+				creator,
+				recipientsArr,
+				quantitiesArr,
+				initConfig,
+				thumbChunks as readonly `0x${string}`[],
+			] as const,
 		value: 0n,
 		query: { enabled: type === "ERC1155" && !!name && recipientsArr.length > 0 },
 	}), [creator, recipientsArr, quantitiesArr, initConfig, thumbChunks, type, name]);
@@ -339,12 +368,12 @@ export default function Mint() {
 		abi: multiplexExtensionAbi,
 		address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 		functionName: "mintERC721" as const,
-		args: [
-			creator,
-			recipientsArr[0] || "0x0000000000000000000000000000000000000000" as Address,
-			initConfig,
-			thumbChunks as readonly `0x${string}`[],
-		] as const,
+					args: [
+				creator,
+				recipientsArr[0] || "0x0000000000000000000000000000000000000000" as Address,
+				initConfig,
+				thumbChunks as readonly `0x${string}`[],
+			] as const,
 		value: 0n,
 		query: { enabled: type === "ERC721" && !!name && recipientsArr.length > 0 },
 	}), [creator, recipientsArr, initConfig, thumbChunks, type, name]);
@@ -405,12 +434,12 @@ export default function Mint() {
 					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC1155",
 					args: [
-						creator,
-						recipientsArr,
-						quantitiesArr,
-						initConfig,
-						thumbChunks as readonly `0x${string}`[],
-					],
+											creator,
+					recipientsArr,
+					quantitiesArr,
+					initConfig,
+					thumbChunks as readonly `0x${string}`[],
+				],
 					value: 0n,
 				});
 			} else {
@@ -425,11 +454,11 @@ export default function Mint() {
 					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC721",
 					args: [
-						creator,
-						recipientsArr[0], // ERC721 takes single recipient
-						initConfig,
-						thumbChunks as readonly `0x${string}`[],
-					],
+											creator,
+					recipientsArr[0], // ERC721 takes single recipient
+					initConfig,
+					thumbChunks as readonly `0x${string}`[],
+				],
 					value: 0n,
 				});
 			}
@@ -587,7 +616,7 @@ export default function Mint() {
 									Drop your artwork here or click to browse
 								</p>
 								<p className="text-sm text-zinc-400 mt-2">
-									Image, video, audio, 3D model, html
+									Image, video, audio, 3D model, HTML, JSON
 								</p>
 							</>
 						)}
@@ -796,23 +825,98 @@ export default function Mint() {
 							</div>
 						)}
 
-						{useOffchainThumbnail && (
+													{useOffchainThumbnail && (
+								<div>
+									<label className="label">Thumbnail URIs</label>
+									<textarea
+										rows={3}
+										className="textarea-field font-mono text-sm"
+										placeholder="ipfs://thumb1&#10;ipfs://thumb2"
+										value={artistThumbnailUris}
+										onChange={(e) => setArtistThumbnailUris(e.target.value)}
+									/>
+									<p className="help-text">
+										One URI per line. Collectors can select from these thumbnails.
+									</p>
+								</div>
+							)}
+
 							<div>
-								<label className="label">Thumbnail URIs</label>
-								<textarea
-									rows={3}
-									className="textarea-field font-mono text-sm"
-									placeholder="ipfs://thumb1&#10;ipfs://thumb2"
-									value={artistThumbnailUris}
-									onChange={(e) => setArtistThumbnailUris(e.target.value)}
-								/>
-								<p className="help-text">
-									One URI per line. Collectors can select from these thumbnails.
-								</p>
+								<label className="label">Custom HTML Template (optional)</label>
+								<div
+									className={`upload-zone ${htmlTemplateFile ? "active" : ""}`}
+									onDragOver={(e) => {
+										e.preventDefault();
+										e.currentTarget.classList.add("active");
+									}}
+									onDragLeave={(e) => {
+										e.currentTarget.classList.remove("active");
+									}}
+									onDrop={(e) => {
+										e.preventDefault();
+										e.currentTarget.classList.remove("active");
+										const file = e.dataTransfer.files?.[0];
+										if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
+											prepareHtmlTemplate(file);
+										} else if (file) {
+											alert('Please upload an HTML file');
+										}
+									}}
+									onClick={() => {
+										const input = document.createElement("input");
+										input.type = "file";
+										input.accept = ".html,.htm";
+										input.onchange = () => {
+											const file = input.files?.[0];
+											if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
+												prepareHtmlTemplate(file);
+											} else if (file) {
+												alert('Please upload an HTML file');
+											}
+										};
+										input.click();
+									}}
+								>
+									{htmlTemplateFile ? (
+										<div className="space-y-2">
+											<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
+												<p className="text-sm font-medium text-zinc-300 mb-2">{htmlTemplateFile.name}</p>
+												<p className="text-xs text-zinc-400">{htmlTemplateChunks.length} chunks • {htmlTemplateContent.length} characters</p>
+												<details className="mt-2">
+													<summary className="text-xs text-zinc-400 cursor-pointer">Preview content</summary>
+													<pre className="text-xs text-zinc-500 mt-1 p-2 bg-zinc-900 rounded max-h-32 overflow-auto">
+														{htmlTemplateContent.slice(0, 500)}{htmlTemplateContent.length > 500 ? '...' : ''}
+													</pre>
+												</details>
+											</div>
+										</div>
+									) : (
+										<>
+											<svg
+												className="w-8 h-8 text-gray-400 mx-auto mb-2"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
+											>
+												<path
+													strokeLinecap="round"
+													strokeLinejoin="round"
+													strokeWidth={2}
+													d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+												/>
+											</svg>
+											<p className="text-zinc-400 text-sm">
+												Drop an HTML template or click to browse
+											</p>
+											<p className="text-xs text-zinc-500 mt-1">
+												Optional: Use {'{{FILE_URIS}}'} and {'{{FILE_HASH}}'} placeholders
+											</p>
+										</>
+									)}
+								</div>
 							</div>
-						)}
+						</div>
 					</div>
-				</div>
 
 				{/* Step 4: Artist Permissions */}
 				<div className="card">

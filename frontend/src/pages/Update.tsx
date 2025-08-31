@@ -46,6 +46,11 @@ export default function Update() {
 	const [newArtworkUri, setNewArtworkUri] = useState("");
 	const [newThumbnailUri, setNewThumbnailUri] = useState("");
 
+	// HTML Template
+	const [htmlTemplateFile, setHtmlTemplateFile] = useState<File | null>(null);
+	const [htmlTemplateContent, setHtmlTemplateContent] = useState<string>("");
+	const [htmlTemplateChunks, setHtmlTemplateChunks] = useState<string[]>([]);
+
 	// Selection updates
 	const [selectedArtworkIndex, setSelectedArtworkIndex] = useState(0);
 	const [selectedThumbnailIndex, setSelectedThumbnailIndex] = useState(0);
@@ -171,6 +176,7 @@ export default function Update() {
 	const isOnChainThumbnail = thumbnailInfo ? thumbnailInfo[0] === 0 : true;
 	const hasArtistUpdateMetaPermission = permissions ? (Number(permissions.flags) & (1 << 1)) !== 0 : false;
 	const hasArtistUpdateThumbPermission = permissions ? (Number(permissions.flags) & (1 << 0)) !== 0 : false;
+	const hasArtistUpdateTemplatePermission = permissions ? (Number(permissions.flags) & (1 << 6)) !== 0 : false;
 
   const prepareThumbnail = useCallback(async (file: File) => {
 		setThumbnailFile(file);
@@ -197,6 +203,26 @@ export default function Update() {
 			);
 		}
 		setThumbChunks(chunks);
+	}, []);
+
+	const prepareHtmlTemplate = useCallback(async (file: File) => {
+		setHtmlTemplateFile(file);
+
+		// Read file content
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			const content = e.target?.result as string;
+			setHtmlTemplateContent(content);
+			
+			// For HTML templates, we store them as string chunks (not compressed)
+			const CHUNK_SIZE = 20 * 1024; // 20KB per chunk for text
+			const chunks: string[] = [];
+			for (let i = 0; i < content.length; i += CHUNK_SIZE) {
+				chunks.push(content.slice(i, i + CHUNK_SIZE));
+			}
+			setHtmlTemplateChunks(chunks);
+		};
+		reader.readAsText(file);
 	}, []);
 
   const handleAddAttribute = () => {
@@ -258,6 +284,14 @@ export default function Update() {
 		functionName: "setDisplayMode",
 		args: [creator, BigInt(tokenId || 0), displayMode],
 		query: { enabled: !!creator && !!tokenId },
+	});
+
+	const { error: simulateHtmlTemplateError } = useSimulateContract({
+		abi: multiplexAbi,
+		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		functionName: "updateHtmlTemplate",
+		args: [creator, BigInt(tokenId || 0), htmlTemplateChunks, false],
+		query: { enabled: !!creator && !!tokenId && htmlTemplateChunks.length > 0 && hasArtistUpdateTemplatePermission },
 	});
 
 	// Contract interaction functions
@@ -343,6 +377,16 @@ export default function Update() {
 		});
 	};
 
+	const updateHtmlTemplate = () => {
+		if (!htmlTemplateFile || htmlTemplateChunks.length === 0) return;
+		writeContract({
+			abi: multiplexAbi,
+			address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+			functionName: "updateHtmlTemplate",
+			args: [creator, BigInt(tokenId), htmlTemplateChunks, false], // false = not zipped for HTML
+		});
+	};
+
 	// Direct form submission handlers
 	const onSubmitMetadata = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -352,6 +396,11 @@ export default function Update() {
 	const onSubmitThumbnail = (e: React.FormEvent) => {
 		e.preventDefault();
 		updateThumbnail();
+	};
+
+	const onSubmitHtmlTemplate = (e: React.FormEvent) => {
+		e.preventDefault();
+		updateHtmlTemplate();
 	};
 
 	// Effect to refetch data after successful transactions
@@ -921,15 +970,121 @@ export default function Update() {
 															onClick={updateThumbnailSelection}
 															className="btn-secondary mt-2"
 														>
-															Update Selection
+																																					Update Selection
         </button>
       </div>
-												)) as React.ReactNode
-										}
-									</div>
-								)}
-							</div>
-						</div>
+																				)) as React.ReactNode
+																			}
+																		</div>
+																	)}
+																</div>
+
+														{/* HTML Template Management */}
+														<div className="card">
+															<h3 className="text-lg font-semibold text-zinc-100 mb-4">
+																6. HTML Template Management
+															</h3>
+
+															{!hasArtistUpdateTemplatePermission ? (
+																<p className="text-red-400">
+																	You don't have permission to update HTML templates.
+																</p>
+															) : (
+																<form onSubmit={onSubmitHtmlTemplate}>
+																	{simulateHtmlTemplateError && (
+																		<div className="mb-4 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
+																			<p className="text-sm text-orange-300 font-medium">Update will fail:</p>
+																			<p className="text-xs text-orange-200 mt-1">{simulateHtmlTemplateError.message}</p>
+																		</div>
+																	)}
+
+																	<p className="text-zinc-400 mb-4">
+																		Upload a custom HTML template for this token
+																	</p>
+
+																	<div
+																		className={`upload-zone ${htmlTemplateFile ? "active" : ""}`}
+																		onDragOver={(e) => {
+																			e.preventDefault();
+																			e.currentTarget.classList.add("active");
+																		}}
+																		onDragLeave={(e) => {
+																			e.currentTarget.classList.remove("active");
+																		}}
+																		onDrop={(e) => {
+																			e.preventDefault();
+																			e.currentTarget.classList.remove("active");
+																			const file = e.dataTransfer.files?.[0];
+																			if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
+																				prepareHtmlTemplate(file);
+																			} else if (file) {
+																				alert('Please upload an HTML file');
+																			}
+																		}}
+																		onClick={() => {
+																			const input = document.createElement("input");
+																			input.type = "file";
+																			input.accept = ".html,.htm";
+																			input.onchange = () => {
+																				const file = input.files?.[0];
+																				if (file && (file.type === 'text/html' || file.name.endsWith('.html'))) {
+																					prepareHtmlTemplate(file);
+																				} else if (file) {
+																					alert('Please upload an HTML file');
+																				}
+																			};
+																			input.click();
+																		}}
+																	>
+																		{htmlTemplateFile ? (
+																			<div className="space-y-2">
+																				<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
+																					<p className="text-sm font-medium text-zinc-300 mb-2">{htmlTemplateFile.name}</p>
+																					<p className="text-xs text-zinc-400">{htmlTemplateChunks.length} chunks • {htmlTemplateContent.length} characters</p>
+																					<details className="mt-2">
+																						<summary className="text-xs text-zinc-400 cursor-pointer">Preview content</summary>
+																						<pre className="text-xs text-zinc-500 mt-1 p-2 bg-zinc-900 rounded max-h-32 overflow-auto">
+																							{htmlTemplateContent.slice(0, 500)}{htmlTemplateContent.length > 500 ? '...' : ''}
+																						</pre>
+																					</details>
+																				</div>
+																			</div>
+																		) : (
+																			<>
+																				<svg
+																					className="w-8 h-8 text-gray-400 mx-auto mb-2"
+																					fill="none"
+																					stroke="currentColor"
+																					viewBox="0 0 24 24"
+																				>
+																					<path
+																						strokeLinecap="round"
+																						strokeLinejoin="round"
+																						strokeWidth={2}
+																						d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+																					/>
+																				</svg>
+																				<p className="text-zinc-400 text-sm">
+																					Drop an HTML template or click to browse
+																				</p>
+																				<p className="text-xs text-zinc-500 mt-1">
+																					Use {'{{FILE_URIS}}'} and {'{{FILE_HASH}}'} placeholders
+																				</p>
+																			</>
+																		)}
+																	</div>
+
+																	<button
+																		type="submit"
+																		className="btn-primary mt-4 w-full"
+																		disabled={!htmlTemplateFile || htmlTemplateChunks.length === 0 || isPending || isConfirming || !!simulateHtmlTemplateError}
+																	>
+																		{isPending || isConfirming ? "Updating..." : "Update HTML Template"}
+																	</button>
+																</form>
+															)}
+														</div>
+													</div>
 					)) as React.ReactNode
 				}
 

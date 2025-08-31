@@ -50,10 +50,11 @@ contract MockMultiplexExtension is IMultiplexCreator {
         address contractAddress,
         uint256 tokenId,
         IMultiplex.InitConfig calldata config,
-        bytes[] calldata thumbnailChunks
+        bytes[] calldata thumbnailChunks,
+        string[] calldata htmlTemplateChunks
     ) external {
         require(_admins[msg.sender], "Not admin");
-        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks);
+        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
     }
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {

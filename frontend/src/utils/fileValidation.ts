@@ -155,6 +155,17 @@ export const SUPPORTED_FILE_TYPES: Record<string, FileTypeInfo> = {
 		],
 		extensions: [".html", ".htm", ".shtml", ".shtm", ".ehtml", ".pdf"],
 	},
+
+	// JSON and data formats
+	json: {
+		category: "document",
+		mimeTypes: [
+			"application/json",
+			"text/json",
+			"application/ld+json",
+		],
+		extensions: [".json", ".jsonl", ".ndjson"],
+	},
 };
 
 // Comprehensive list of all supported extensions

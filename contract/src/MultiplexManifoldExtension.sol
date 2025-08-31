@@ -76,7 +76,8 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     /// @param contractAddress The contract to check admin status for
     /// @return True if caller is admin, false otherwise
     function _isContractAdmin(address contractAddress) internal view returns (bool) {
-        (bool ok, bytes memory ret) = contractAddress.staticcall(abi.encodeWithSelector(AdminControl.isAdmin.selector, msg.sender));
+        (bool ok, bytes memory ret) =
+            contractAddress.staticcall(abi.encodeWithSelector(AdminControl.isAdmin.selector, msg.sender));
         if (ok && ret.length >= 32) {
             return abi.decode(ret, (bool));
         }
@@ -106,17 +107,18 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         returns (bool)
     {
         // Try ERC721 ownerOf first
-        (bool ok, bytes memory ret) = creatorContract.staticcall(abi.encodeWithSelector(IERC721.ownerOf.selector, tokenId));
+        (bool ok, bytes memory ret) =
+            creatorContract.staticcall(abi.encodeWithSelector(IERC721.ownerOf.selector, tokenId));
         if (ok && ret.length >= 32) {
             return abi.decode(ret, (address)) == account;
         }
-        
+
         // Try ERC1155 balanceOf if ERC721 fails
         (ok, ret) = creatorContract.staticcall(abi.encodeWithSelector(IERC1155.balanceOf.selector, account, tokenId));
         if (ok && ret.length >= 32) {
             return abi.decode(ret, (uint256)) > 0;
         }
-        
+
         return false;
     }
 
@@ -131,12 +133,14 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     /// for different amounts)
     /// @param config Mint configuration
     /// @param thumbnailChunks On-chain thumbnail data chunks (only if thumbnailKind == ON_CHAIN)
+    /// @param htmlTemplateChunks HTML template chunks (if config.htmlTemplate has empty chunks, use these)
     function mintERC1155(
         address contractAddress,
         address[] calldata recipients,
         uint256[] calldata quantities,
         IMultiplex.InitConfig memory config,
-        bytes[] calldata thumbnailChunks
+        bytes[] calldata thumbnailChunks,
+        string[] calldata htmlTemplateChunks
     )
         external
         payable
@@ -156,7 +160,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
 
         // Initialize token data in Multiplex and emit events
         uint256 tokenId = tokenIds[0]; // There's only one token minted
-        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks);
+        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
 
         emit TokenMintedERC1155(contractAddress, tokenId, recipients, quantities);
     }
@@ -166,11 +170,13 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     /// @param recipient Address to mint to
     /// @param config Mint configuration
     /// @param thumbnailChunks On-chain thumbnail data chunks (only if thumbnailKind == ON_CHAIN)
+    /// @param htmlTemplateChunks HTML template chunks (if config.htmlTemplate has empty chunks, use these)
     function mintERC721(
         address contractAddress,
         address recipient,
         IMultiplex.InitConfig memory config,
-        bytes[] calldata thumbnailChunks
+        bytes[] calldata thumbnailChunks,
+        string[] calldata htmlTemplateChunks
     )
         external
         payable
@@ -183,7 +189,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         uint256 tokenId = IERC721CreatorCore(contractAddress).mintExtension(recipient);
 
         // Initialize token data in Multiplex and emit events
-        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks);
+        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
         emit TokenMintedERC721(contractAddress, tokenId, recipient);
     }
 

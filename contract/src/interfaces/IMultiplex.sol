@@ -87,6 +87,7 @@ interface IMultiplex {
         Thumbnail thumbnail;
         DisplayMode displayMode;
         Permissions permissions;
+        HtmlTemplate htmlTemplate;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -153,11 +154,13 @@ interface IMultiplex {
     /// @param tokenId The token ID to initialize
     /// @param config Initialization configuration
     /// @param thumbnailChunks On-chain thumbnail data chunks
+    /// @param htmlTemplateChunks HTML template chunks (if config.htmlTemplate has empty chunks, use these)
     function initializeTokenData(
         address contractAddress,
         uint256 tokenId,
         InitConfig calldata config,
-        bytes[] calldata thumbnailChunks
+        bytes[] calldata thumbnailChunks,
+        string[] calldata htmlTemplateChunks
     )
         external;
 

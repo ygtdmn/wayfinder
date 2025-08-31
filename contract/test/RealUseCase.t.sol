@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.30 <0.9.0;
 
-import "forge-std/src/Test.sol";
+import { Test } from "forge-std/src/Test.sol";
 import { IERC1155CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
 import { console2 } from "forge-std/src/console2.sol";
 import { MultiplexManifoldExtension } from "src/MultiplexManifoldExtension.sol";
@@ -32,7 +32,7 @@ contract RealUseCaseTest is Test {
 
         IERC1155CreatorCore ephemera = IERC1155CreatorCore(address(0xCb337152b6181683010D07e3f00e7508cd348BC7));
         ephemera.registerExtension(address(extension), "");
-        
+
         // Register the ephemera contract with Multiplex
         multiplex.registerContract(address(ephemera), address(extension));
         address[] memory recipients = new address[](1);
@@ -72,17 +72,22 @@ contract RealUseCaseTest is Test {
         IMultiplex.DisplayMode displayMode = IMultiplex.DisplayMode.HTML;
         IMultiplex.Permissions memory permissions = IMultiplex.Permissions({ flags: uint16(0xFFFF) });
 
+        IMultiplex.HtmlTemplate memory htmlTemplateStruct =
+            IMultiplex.HtmlTemplate({ chunks: new address[](0), zipped: false });
+
         IMultiplex.InitConfig memory config = IMultiplex.InitConfig({
             metadata: metadata,
             artwork: artwork,
             thumbnail: thumbnail,
             displayMode: displayMode,
-            permissions: permissions
+            permissions: permissions,
+            htmlTemplate: htmlTemplateStruct
         });
 
         bytes[] memory thumbnailChunks = new bytes[](0);
+        string[] memory htmlTemplateChunks = new string[](0);
 
-        extension.mintERC1155(address(ephemera), recipients, quantities, config, thumbnailChunks);
+        extension.mintERC1155(address(ephemera), recipients, quantities, config, thumbnailChunks, htmlTemplateChunks);
 
         console2.log(IERC1155MetadataURI(address(ephemera)).uri(8));
 
