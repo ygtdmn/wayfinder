@@ -149,7 +149,7 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
         emit ContractRegistered(contractAddress, operator, msg.sender);
     }
 
-        /// @notice Check if an address is the operator for a contract
+    /// @notice Check if an address is the operator for a contract
     /// @param contractAddress The contract contract address
     /// @param operatorAddress The address to check
     /// @return True if operatorAddress is the operator for the contract
@@ -229,9 +229,10 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
             if (config.thumbnail.offChain.uris.length == 0) {
                 revert InvalidIndexRange();
             }
-        }
-        if (config.thumbnail.offChain.selectedUriIndex >= config.thumbnail.offChain.uris.length) {
-            revert InvalidSelectedThumbnailUriIndex();
+
+            if (config.thumbnail.offChain.selectedUriIndex >= config.thumbnail.offChain.uris.length) {
+                revert InvalidSelectedThumbnailUriIndex();
+            }
         }
 
         emit TokenDataInitialized(contractAddress, tokenId);
@@ -761,7 +762,7 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
             }
         }
 
-        return _encodeDataUri("application/json", bytes(LibString.concat(LibString.concat("{", json), "}")), true);
+        return _encodeDataUri("application/json", bytes(LibString.concat(LibString.concat("{", json), "}")), false);
     }
 
     /// @notice Resolve thumbnail URI based on storage type
