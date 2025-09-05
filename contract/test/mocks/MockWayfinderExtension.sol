@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.30 <0.9.0;
 
-import { IMultiplex } from "src/interfaces/IMultiplex.sol";
-import { IMultiplexCreator } from "src/interfaces/IMultiplexCreator.sol";
+import { IWayfinder } from "src/interfaces/IWayfinder.sol";
+import { IWayfinderCreator } from "src/interfaces/IWayfinderCreator.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-contract MockMultiplexExtension is IMultiplexCreator {
-    IMultiplex public multiplex;
+contract MockWayfinderExtension is IWayfinderCreator {
+    IWayfinder public wayfinder;
     mapping(address => bool) private _admins;
     mapping(address => mapping(address => mapping(uint256 => bool))) private _tokenOwners;
 
-    constructor(address _multiplex) {
-        multiplex = IMultiplex(_multiplex);
+    constructor(address _wayfinder) {
+        wayfinder = IWayfinder(_wayfinder);
         _admins[msg.sender] = true;
     }
 
@@ -32,14 +32,19 @@ contract MockMultiplexExtension is IMultiplexCreator {
         address creatorContract,
         address account,
         uint256 tokenId
-    ) external view override returns (bool) {
+    )
+        external
+        view
+        override
+        returns (bool)
+    {
         // Use the stored mock data if available, otherwise delegate to the real contract
         if (_tokenOwners[creatorContract][account][tokenId]) {
             return true;
         }
-        
-        // Try to call the real contract's isTokenOwner if it implements IMultiplexCreator
-        try IMultiplexCreator(creatorContract).isTokenOwner(creatorContract, account, tokenId) returns (bool result) {
+
+        // Try to call the real contract's isTokenOwner if it implements IWayfinderCreator
+        try IWayfinderCreator(creatorContract).isTokenOwner(creatorContract, account, tokenId) returns (bool result) {
             return result;
         } catch {
             return false;
@@ -49,15 +54,17 @@ contract MockMultiplexExtension is IMultiplexCreator {
     function initializeTokenData(
         address contractAddress,
         uint256 tokenId,
-        IMultiplex.InitConfig calldata config,
+        IWayfinder.InitConfig calldata config,
         bytes[] calldata thumbnailChunks,
         string[] calldata htmlTemplateChunks
-    ) external {
+    )
+        external
+    {
         require(_admins[msg.sender], "Not admin");
-        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
+        wayfinder.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
     }
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IMultiplexCreator).interfaceId || interfaceId == type(IERC165).interfaceId;
+        return interfaceId == type(IWayfinderCreator).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 }

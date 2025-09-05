@@ -4,10 +4,10 @@ pragma solidity >=0.8.30 <0.9.0;
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /**
- * @title IMultiplexCreator
+ * @title IWayfinderCreator
  * @author Yigit Duman (@yigitduman)
  */
-interface IMultiplexCreator is IERC165 {
+interface IWayfinderCreator is IERC165 {
     /**
      * @notice Check if an account owns a specific token from a creator contract
      * @param creatorContract The creator contract address to check ownership for

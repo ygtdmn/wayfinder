@@ -7,6 +7,7 @@ import {
 import type { Address } from "viem";
 import { ierc721CreatorCoreAbi } from "../abis/IERC721CreatorCore-abi";
 import { ierc1155CreatorCoreAbi } from "../abis/IERC1155CreatorCore-abi";
+import { useTheme } from "../hooks/useTheme";
 
 interface RegisterExtensionProps {
 	creator: Address;
@@ -17,9 +18,10 @@ export default function RegisterExtension({
 	creator,
 	type,
 }: RegisterExtensionProps) {
+	const { isDarkMode } = useTheme();
 	const baseURI = "";
-	const multiplexExtensionAddress = import.meta.env
-		.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address;
+	const wayfinderExtensionAddress = import.meta.env
+		.VITE_WAYFINDER_EXTENSION_ADDRESS as Address;
 
 	const coreAbi =
 		type === "ERC721" ? ierc721CreatorCoreAbi : ierc1155CreatorCoreAbi;
@@ -40,7 +42,7 @@ export default function RegisterExtension({
 
 	const isExtensionRegistered =
 		extensions && Array.isArray(extensions)
-			? extensions.includes(multiplexExtensionAddress)
+			? extensions.includes(wayfinderExtensionAddress)
 			: false;
 
 	// Simulate the registration to catch errors
@@ -48,7 +50,7 @@ export default function RegisterExtension({
 		abi: coreAbi,
 		address: creator,
 		functionName: "registerExtension",
-		args: [multiplexExtensionAddress, baseURI],
+		args: [wayfinderExtensionAddress, baseURI],
 		query: { enabled: !!creator && !isExtensionRegistered },
 	});
 
@@ -57,11 +59,11 @@ export default function RegisterExtension({
 			abi: coreAbi,
 			address: creator,
 			functionName: "registerExtension",
-			args: [multiplexExtensionAddress, baseURI],
+			args: [wayfinderExtensionAddress, baseURI],
 		});
 	};
 
-		// Show success message for recent transaction
+	// Show success message for recent transaction
 	if (isSuccess) {
 		return (
 			<div className="p-4 bg-success bg-opacity-10 border border-success border-opacity-20">
@@ -80,7 +82,7 @@ export default function RegisterExtension({
 						/>
 					</svg>
 					<p className="text-sm text-success font-medium">
-						Multiplex extension registered successfully!
+						Wayfinder extension registered successfully!
 					</p>
 				</div>
 			</div>
@@ -106,7 +108,7 @@ export default function RegisterExtension({
 						/>
 					</svg>
 					<p className="text-sm text-success font-medium">
-						Multiplex extension is already registered!
+						Wayfinder extension is already registered!
 					</p>
 				</div>
 			</div>
@@ -114,14 +116,28 @@ export default function RegisterExtension({
 	}
 
 	return (
-		<div className="p-4 bg-zinc-800  border border-zinc-700">
+		<div
+			className={`p-4 ${
+				isDarkMode
+					? "bg-zinc-800 border-zinc-700"
+					: "bg-zinc-100 border-zinc-300"
+			} border`}
+		>
 			<div className="flex items-start justify-between">
 				<div>
-					<h4 className="font-medium text-zinc-100">
-						Register Multiplex Extension
+					<h4
+						className={`font-medium ${
+							isDarkMode ? "text-zinc-100" : "text-zinc-900"
+						}`}
+					>
+						Register Wayfinder Extension
 					</h4>
-					<p className="text-sm text-zinc-400 mt-1">
-						Required to use Multiplex features with this collection
+					<p
+						className={`text-sm ${
+							isDarkMode ? "text-zinc-400" : "text-zinc-600"
+						} mt-1`}
+					>
+						Required to use Wayfinder features with this collection
 					</p>
 				</div>
 			</div>
@@ -130,13 +146,17 @@ export default function RegisterExtension({
 				onClick={handleRegister}
 				className="btn-primary w-full mt-4"
 				disabled={
-					isPending || isConfirming || !creator || isExtensionRegistered || !!simulateError
+					isPending ||
+					isConfirming ||
+					!creator ||
+					isExtensionRegistered ||
+					!!simulateError
 				}
 			>
 				{isPending || isConfirming ? (
 					<>
 						<svg
-							className="animate-spin -ml-1 mr-2 h-4 w-4 text-black inline"
+							className="animate-spin -ml-1 mr-2 h-4 w-4 inline"
 							fill="none"
 							viewBox="0 0 24 24"
 						>
@@ -165,8 +185,12 @@ export default function RegisterExtension({
 
 			{simulateError && (
 				<div className="mt-2 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
-					<p className="text-sm text-orange-300 font-medium">Transaction will fail:</p>
-					<p className="text-xs text-orange-200 mt-1">{simulateError.message}</p>
+					<p className="text-sm text-orange-300 font-medium">
+						Transaction will fail:
+					</p>
+					<p className="text-xs text-orange-200 mt-1">
+						{simulateError.message}
+					</p>
 				</div>
 			)}
 

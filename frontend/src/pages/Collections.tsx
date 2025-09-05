@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
 import { useAccount, useChainId } from "wagmi";
-import { useNavigate, Link } from "react-router-dom";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useNavigate } from "react-router-dom";
 import { readContract } from "wagmi/actions";
 import type { Address } from "viem";
 import { wagmiConfig } from "../lib/wagmi";
 import { ierc721CreatorCoreAbi } from "../abis/IERC721CreatorCore-abi";
 import { ierc1155CreatorCoreAbi } from "../abis/IERC1155CreatorCore-abi";
-import { multiplexAbi } from "../abis/multiplex-abi";
+import { wayfinderAbi } from "../abis/wayfinder-abi";
 import RegisterExtension from "../components/RegisterExtension";
-import RegisterMultiplex from "../components/RegisterMultiplex";
+import RegisterWayfinder from "../components/RegisterWayfinder";
 import { useManifoldAuth } from "../hooks/useManifoldAuth";
 import { useReadContract } from "wagmi";
+import { Palette, Heart } from "lucide-react";
+import Header from "../components/Header";
+import ConnectButtonPrimary from "../components/ConnectButtonPrimary";
+import { useTheme } from "../hooks/useTheme";
+import Footer from "../components/Footer";
 
 type CreatorCoreInfo = {
 	address: Address;
@@ -34,6 +38,7 @@ export default function Collections() {
 	const [userRole, setUserRole] = useState<"creator" | "collector" | null>(
 		null
 	);
+	const { isDarkMode, toggleTheme } = useTheme();
 
 	// Check if extension is registered with Manifold
 	const coreAbi =
@@ -48,22 +53,22 @@ export default function Collections() {
 		query: { enabled: !!resolved?.address && resolved?.type !== "Unknown" },
 	});
 
-	const multiplexExtensionAddress = import.meta.env
-		.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address;
+	const wayfinderExtensionAddress = import.meta.env
+		.VITE_WAYFINDER_EXTENSION_ADDRESS as Address;
 	const isExtensionRegistered =
 		extensions && Array.isArray(extensions)
-			? extensions.includes(multiplexExtensionAddress)
+			? extensions.includes(wayfinderExtensionAddress)
 			: false;
 
-	// Check if contract is registered with Multiplex
+	// Check if contract is registered with Wayfinder
 	const { data: isContractRegistered } = useReadContract({
-		abi: multiplexAbi,
-		address: import.meta.env.VITE_MULTIPLEX_ADDRESS as Address,
+		abi: wayfinderAbi,
+		address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
 		functionName: "isContractOperator",
 		args: [
 			resolved?.address ||
 				("0x0000000000000000000000000000000000000000" as Address),
-			multiplexExtensionAddress,
+			wayfinderExtensionAddress,
 		],
 		query: { enabled: !!resolved?.address },
 	});
@@ -107,9 +112,35 @@ export default function Collections() {
 			//   args: [address],
 			// }).catch(() => null)
 
+			// Fetch contract name using standard ERC721/ERC1155 name function
+			let contractName: string | undefined;
+			try {
+				const nameAbi = [
+					{
+						type: "function",
+						name: "name",
+						inputs: [],
+						outputs: [{ name: "", type: "string", internalType: "string" }],
+						stateMutability: "view",
+					},
+				] as const;
+
+				if (is721 || is1155) {
+					contractName = await readContract(wagmiConfig, {
+						address: core,
+						abi: nameAbi,
+						functionName: "name",
+						args: [],
+					});
+				}
+			} catch (error) {
+				console.log("Could not fetch contract name:", error);
+			}
+
 			const info: CreatorCoreInfo = {
 				address: core,
 				type: is721 ? "ERC721" : is1155 ? "ERC1155" : "Unknown",
+				name: contractName,
 				isAdmin: isAdmin,
 			};
 			setResolved(info);
@@ -226,632 +257,340 @@ export default function Collections() {
 	}, [address, chainId, isAuthenticated]);
 
 	return (
-		<div className="min-h-screen">
-			<div className="flex justify-between items-center p-8 border-b border-zinc-800">
-				<Link to="/" className="text-2xl font-black text-zinc-100">
-					multiplex
-				</Link>
-				<ConnectButton.Custom>
-					{({
-						account,
-						chain,
-						openAccountModal,
-						openChainModal,
-						openConnectModal,
-						authenticationStatus,
-						mounted,
-					}) => {
-						const ready = mounted && authenticationStatus !== "loading";
-						const connected =
-							ready &&
-							account &&
-							chain &&
-							(!authenticationStatus ||
-								authenticationStatus === "authenticated");
+		<div
+			className={`scroll-smooth min-h-screen flex flex-col ${
+				isDarkMode ? "bg-zinc-950 text-zinc-100" : "bg-zinc-50 text-zinc-900"
+			}`}
+		>
+			<Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
 
-						return (
-							<div
-								{...(!ready && {
-									"aria-hidden": true,
-									style: {
-										opacity: 0,
-										pointerEvents: "none",
-										userSelect: "none",
-									},
-								})}
-							>
-								{(() => {
-									if (!connected) {
-										return (
-											<button
-												onClick={openConnectModal}
-												type="button"
-												className="bg-white text-black font-bold px-6 py-3 hover:bg-gray-100 transition-all"
-											>
-												Connect Wallet
-											</button>
-										);
-									}
-
-									return (
-										<div className="flex gap-2">
-											<button
-												onClick={openChainModal}
-												className="bg-white text-black font-bold px-4 py-3 hover:bg-gray-100 transition-all"
-												type="button"
-											>
-												{chain.hasIcon && (
-													<div className="inline-block w-4 h-4 mr-2">
-														{chain.iconUrl && (
-															<img
-																alt={chain.name ?? "Chain icon"}
-																src={chain.iconUrl}
-																className="w-4 h-4"
-															/>
-														)}
-													</div>
-												)}
-												{chain.name}
-											</button>
-
-											<button
-												onClick={openAccountModal}
-												type="button"
-												className="bg-white text-black font-bold px-4 py-3 hover:bg-gray-100 transition-all"
-											>
-												{account.displayName}
-											</button>
-										</div>
-									);
-								})()}
-							</div>
-						);
-					}}
-				</ConnectButton.Custom>
-			</div>
-			<div className="max-w-7xl mx-auto px-8 py-8 space-y-8 animate-fade-in">
-				{/* Role Selection */}
-				{!userRole && (
-					<div>
-						<div className="text-center mb-8">
-							<h2 className="text-2xl font-display font-bold text-zinc-100">
-								Welcome to Multiplex
-							</h2>
-							<p className="text-zinc-400 mt-2">
-								Are you here as a creator or collector?
-							</p>
-						</div>
-
-						<div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-							{/* Creator Card */}
-							<button
-								onClick={() => setUserRole("creator")}
-								className="card-hover text-left p-8 group"
-							>
-								<div className="flex items-center mb-4">
-									<div className="w-12 h-12 bg-blue-500 bg-opacity-20 rounded-lg flex items-center justify-center mr-4 group-hover:bg-opacity-30 transition-all">
-										<svg
-											className="w-6 h-6 text-blue-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"
-											/>
-										</svg>
-									</div>
-									<h3 className="text-xl font-semibold text-zinc-100">
-										I'm a Creator
-									</h3>
-								</div>
-								<p className="text-zinc-400 mb-6">
-									I want to create new artworks, manage existing tokens, update
-									metadata, and control collector permissions.
-								</p>
-								<div className="space-y-2 text-sm text-zinc-500">
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Mint new artworks
-									</div>
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Update metadata & thumbnails
-									</div>
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Manage artwork & thumbnail URIs
-									</div>
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Set collector permissions
-									</div>
-								</div>
-							</button>
-
-							{/* Collector Card */}
-							<button
-								onClick={() => setUserRole("collector")}
-								className="card-hover text-left p-8 group"
-							>
-								<div className="flex items-center mb-4">
-									<div className="w-12 h-12 bg-purple-500 bg-opacity-20 rounded-lg flex items-center justify-center mr-4 group-hover:bg-opacity-30 transition-all">
-										<svg
-											className="w-6 h-6 text-purple-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-											/>
-										</svg>
-									</div>
-									<h3 className="text-xl font-semibold text-zinc-100">
-										I'm a Collector
-									</h3>
-								</div>
-								<p className="text-zinc-400 mb-6">
-									I own tokens and want to customize their display, select
-									artworks, or add my own content where allowed.
-								</p>
-								<div className="space-y-2 text-sm text-zinc-500">
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Change display modes
-									</div>
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Select from artist artworks
-									</div>
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Choose thumbnails
-									</div>
-									<div className="flex items-center">
-										<svg
-											className="w-4 h-4 mr-2 text-green-400"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={2}
-												d="M5 13l4 4L19 7"
-											/>
-										</svg>
-										Add artwork (if permitted)
-									</div>
-								</div>
-							</button>
-						</div>
-					</div>
-				)}
-
-				{/* Creator Interface */}
-				{userRole === "creator" && (
-					<>
-						<div className="flex items-center gap-4 mb-6">
-							<button
-								onClick={() => setUserRole(null)}
-								className="btn-ghost text-sm"
-							>
-								← Back to role selection
-							</button>
-						</div>
-
-						<div>
-							<div className="flex items-center justify-between mb-6">
-								<div>
-									<h2 className="text-2xl font-display font-bold text-zinc-100">
-										Your Collections
-									</h2>
-									<p className="text-zinc-400 mt-1">
-										Select a collection to manage or paste an address below
+			{/* Role Selection - Centered */}
+			{!userRole && (
+				<div className="flex-grow flex items-center justify-center p-4">
+					<div className="max-w-6xl w-full">
+						<div className="px-4 md:px-8 py-8">
+							<div>
+								<div className="text-center mb-8">
+									<h1
+										className={`text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight mb-4 md:mb-6 ${
+											isDarkMode ? "text-zinc-100" : "text-zinc-900"
+										}`}
+									>
+										Welcome to Wayfinder
+									</h1>
+									<p
+										className={`text-sm md:text-base lg:text-lg font-medium ${
+											isDarkMode ? "text-zinc-300" : "text-zinc-600"
+										}`}
+									>
+										Are you here as a creator or collector?
 									</p>
 								</div>
-								{isAuthenticated && (
+
+								<div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+									{/* Creator Card */}
 									<button
-										onClick={discoverCreatorCores}
-										disabled={discovering}
-										className="btn-ghost"
+										onClick={() => setUserRole("creator")}
+										className="card-hover p-12 group aspect-square flex flex-col justify-center"
 									>
-										{discovering ? (
-											<>
-												<svg
-													className="animate-spin -ml-1 mr-2 h-4 w-4 text-zinc-400 inline"
-													fill="none"
-													viewBox="0 0 24 24"
-												>
-													<circle
-														className="opacity-25"
-														cx="12"
-														cy="12"
-														r="10"
-														stroke="currentColor"
-														strokeWidth="4"
-													></circle>
-													<path
-														className="opacity-75"
-														fill="currentColor"
-														d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-													></path>
-												</svg>
-												Searching...
-											</>
-										) : (
-											"Refresh"
-										)}
+										<div className="text-center">
+											<div className="w-16 h-16 bg-orange-500 bg-opacity-20 rounded-xl flex items-center justify-center mx-auto mb-6 group-hover:bg-opacity-30 transition-all">
+												<Palette className="w-8 h-8 text-orange-400" />
+											</div>
+											<h3
+												className={`text-2xl font-bold ${
+													isDarkMode ? "text-white" : "text-zinc-900"
+												} mb-4`}
+											>
+												Creator
+											</h3>
+											<p
+												className={`${
+													isDarkMode ? "text-zinc-300" : "text-zinc-600"
+												} text-md leading-relaxed`}
+											>
+												Create and manage your tokens with full control over
+												metadata and collector permissions.
+											</p>
+										</div>
 									</button>
+
+									{/* Collector Card */}
+									<button
+										onClick={() => setUserRole("collector")}
+										className="card-hover p-12 group aspect-square flex flex-col justify-center"
+									>
+										<div className="text-center">
+											<div className="w-16 h-16 bg-purple-500 bg-opacity-20 rounded-xl flex items-center justify-center mx-auto mb-6 group-hover:bg-opacity-30 transition-all">
+												<Heart className="w-8 h-8 text-purple-400" />
+											</div>
+											<h3
+												className={`text-2xl font-bold ${
+													isDarkMode ? "text-white" : "text-zinc-900"
+												} mb-4`}
+											>
+												Collector
+											</h3>
+											<p
+												className={`${
+													isDarkMode ? "text-zinc-300" : "text-zinc-600"
+												} text-md leading-relaxed`}
+											>
+												Customize and personalize the tokens you own based on
+												artist-defined permissions.
+											</p>
+										</div>
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Main Content for Creator and Collector */}
+			<div className="flex-grow">
+				{/* Creator Interface - Normal Layout */}
+				{userRole === "creator" && (
+					<div className="px-4 md:px-8 py-8 max-w-6xl mx-auto space-y-6">
+						<>
+							<div className="flex items-center gap-4 mb-6">
+								<button
+									onClick={() => setUserRole(null)}
+									className="btn-ghost text-sm"
+								>
+									← Back to role selection
+								</button>
+							</div>
+
+							<div>
+								<div className="flex items-center justify-between mb-6">
+									<div>
+										<h2
+											className={`text-lg md:text-xl font-bold ${
+												isDarkMode ? "text-zinc-100" : "text-zinc-900"
+											}`}
+										>
+											Your Collections
+										</h2>
+										<p
+											className={`text-sm md:text-base ${
+												isDarkMode ? "text-zinc-300" : "text-zinc-600"
+											}`}
+										>
+											Select a collection to manage or paste an address below
+										</p>
+									</div>
+									{isAuthenticated && (
+										<button
+											onClick={discoverCreatorCores}
+											disabled={discovering}
+											className="btn-ghost"
+										>
+											{discovering ? (
+												<>
+													<svg
+														className="animate-spin -ml-1 mr-2 h-4 w-4 text-zinc-400 inline"
+														fill="none"
+														viewBox="0 0 24 24"
+													>
+														<circle
+															className="opacity-25"
+															cx="12"
+															cy="12"
+															r="10"
+															stroke="currentColor"
+															strokeWidth="4"
+														></circle>
+														<path
+															className="opacity-75"
+															fill="currentColor"
+															d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+														></path>
+													</svg>
+													Searching...
+												</>
+											) : (
+												"Refresh"
+											)}
+										</button>
+									)}
+								</div>
+
+								{discovered.length > 0 ? (
+									<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+										{discovered.map((c) => (
+											<button
+												key={c.address}
+												className="card-hover text-left"
+												onClick={() => setResolved(c)}
+											>
+												<div className="flex items-start justify-between">
+													<div className="flex-1 min-w-0">
+														<p
+															className={`text-sm font-medium ${
+																isDarkMode ? "text-zinc-100" : "text-zinc-900"
+															}`}
+														>
+															{c.name || "Unnamed Collection"}
+														</p>
+														<p
+															className={`text-xs ${
+																isDarkMode ? "text-zinc-400" : "text-zinc-600"
+															} mt-1`}
+														>
+															{c.type}
+														</p>
+														<p
+															className={`text-xs ${
+																isDarkMode ? "text-zinc-500" : "text-zinc-500"
+															} truncate mt-1`}
+														>
+															{c.address}
+														</p>
+													</div>
+													{c.type === "ERC721" ? (
+														<svg
+															className={`w-5 h-5 ${
+																isDarkMode ? "text-zinc-400" : "text-zinc-600"
+															} ml-2`}
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
+														>
+															<path
+																strokeLinecap="round"
+																strokeLinejoin="round"
+																strokeWidth={2}
+																d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+															/>
+														</svg>
+													) : (
+														<svg
+															className={`w-5 h-5 ${
+																isDarkMode ? "text-zinc-400" : "text-zinc-600"
+															} ml-2`}
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
+														>
+															<path
+																strokeLinecap="round"
+																strokeLinejoin="round"
+																strokeWidth={2}
+																d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+															/>
+														</svg>
+													)}
+												</div>
+											</button>
+										))}
+									</div>
+								) : (
+									<div
+										className={`text-center py-8 ${
+											isDarkMode
+												? "bg-zinc-800"
+												: "bg-white border border-zinc-300"
+										}`}
+									>
+										{!address ? (
+											<div className="space-y-4">
+												<p
+													className={
+														isDarkMode ? "text-zinc-400" : "text-zinc-600"
+													}
+												>
+													Connect your wallet to get started
+												</p>
+												<div className="flex justify-center">
+													<ConnectButtonPrimary />
+												</div>
+											</div>
+										) : !isAuthenticated ? (
+											<div className="space-y-4">
+												<p
+													className={
+														isDarkMode ? "text-zinc-400" : "text-zinc-600"
+													}
+												>
+													Sign in to Manifold to discover your collections
+													automatically
+												</p>
+												<button
+													onClick={authenticate}
+													disabled={isAuthenticating}
+													className="btn-primary text-sm"
+												>
+													{isAuthenticating
+														? "Signing..."
+														: "Sign in to Manifold"}
+												</button>
+												<p
+													className={`text-sm ${
+														isDarkMode ? "text-zinc-500" : "text-zinc-500"
+													}`}
+												>
+													Or enter your Creator Core contract address below
+												</p>
+											</div>
+										) : (
+											<>
+												<p
+													className={
+														isDarkMode ? "text-zinc-400" : "text-zinc-600"
+													}
+												>
+													No collections found.
+												</p>
+												<p
+													className={`text-sm ${
+														isDarkMode ? "text-zinc-500" : "text-zinc-500"
+													} mt-2`}
+												>
+													Enter your Manifold Creator Core contract address
+													below.
+												</p>
+											</>
+										)}
+										{!discovering && address && (
+											<div
+												className={`mt-4 text-xs ${
+													isDarkMode ? "text-zinc-500" : "text-zinc-500"
+												}`}
+											>
+												<p>
+													You can find your collections at{" "}
+													<a
+														href="https://studio.manifold.xyz"
+														target="_blank"
+														rel="noopener noreferrer"
+														className={
+															isDarkMode
+																? "text-white underline"
+																: "text-zinc-900 underline"
+														}
+													>
+														studio.manifold.xyz
+													</a>
+												</p>
+											</div>
+										)}
+									</div>
 								)}
 							</div>
 
-							{discovered.length > 0 ? (
-								<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-									{discovered.map((c) => (
-										<button
-											key={c.address}
-											className="card-hover text-left"
-											onClick={() => setResolved(c)}
-										>
-											<div className="flex items-start justify-between">
-												<div className="flex-1 min-w-0">
-													<p className="text-sm font-medium text-zinc-100">
-														{c.name || "Unnamed Collection"}
-													</p>
-													<p className="text-xs text-zinc-400 mt-1">{c.type}</p>
-													<p className="text-xs text-zinc-500 truncate mt-1">
-														{c.address}
-													</p>
-												</div>
-												{c.type === "ERC721" ? (
-													<svg
-														className="w-5 h-5 text-zinc-400 ml-2"
-														fill="none"
-														stroke="currentColor"
-														viewBox="0 0 24 24"
-													>
-														<path
-															strokeLinecap="round"
-															strokeLinejoin="round"
-															strokeWidth={2}
-															d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-														/>
-													</svg>
-												) : (
-													<svg
-														className="w-5 h-5 text-zinc-400 ml-2"
-														fill="none"
-														stroke="currentColor"
-														viewBox="0 0 24 24"
-													>
-														<path
-															strokeLinecap="round"
-															strokeLinejoin="round"
-															strokeWidth={2}
-															d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-														/>
-													</svg>
-												)}
-											</div>
-										</button>
-									))}
-								</div>
-							) : (
-								<div className="text-center py-8 bg-zinc-800">
-									{!address ? (
-										<div className="space-y-4">
-											<p className="text-zinc-400">
-												Connect your wallet to get started
-											</p>
-										</div>
-									) : !isAuthenticated ? (
-										<div className="space-y-4">
-											<p className="text-zinc-400">
-												Sign in to Manifold to discover your collections
-												automatically
-											</p>
-											<button
-												onClick={authenticate}
-												disabled={isAuthenticating}
-												className="btn-primary text-sm"
-											>
-												{isAuthenticating
-													? "Signing..."
-													: "Sign in to Manifold"}
-											</button>
-											<p className="text-sm text-zinc-500">
-												Or enter your Creator Core contract address below
-											</p>
-										</div>
-									) : (
-										<>
-											<p className="text-zinc-400">No collections found.</p>
-											<p className="text-sm text-zinc-500 mt-2">
-												Enter your Manifold Creator Core contract address below.
-											</p>
-										</>
-									)}
-									{!discovering && address && (
-										<div className="mt-4 text-xs text-zinc-500">
-											<p>
-												You can find your collections at{" "}
-												<a
-													href="https://studio.manifold.xyz"
-													target="_blank"
-													rel="noopener noreferrer"
-													className="text-white underline"
-												>
-													studio.manifold.xyz
-												</a>
-											</p>
-										</div>
-									)}
-								</div>
-							)}
-						</div>
+							{address && (
+								<>
+									<div className="divider"></div>
 
-						{address && (
-							<>
-								<div className="divider"></div>
-
-								<div>
-									<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-										Or enter a collection address
-									</h3>
-									<div className="flex gap-3">
-										<input
-											className="input-field flex-1"
-											value={creatorInput}
-											onChange={(e) => setCreatorInput(e.target.value)}
-											placeholder="0x... collection address"
-										/>
-										<button
-											className="btn-primary"
-											onClick={checkCreator}
-											disabled={!creatorInput || checking}
-										>
-											{checking ? "Checking..." : "Check"}
-										</button>
-									</div>
-								</div>
-							</>
-						)}
-
-						{resolved && (
-							<div className="card animate-slide-up">
-								<div className="space-y-4">
-									<div className="flex items-center justify-between">
-										<div>
-											<h3 className="text-lg font-semibold text-zinc-100">
-												{resolved.name ||
-													`${
-														resolved.type === "ERC721"
-															? "Single Edition"
-															: resolved.type === "ERC1155"
-															? "Multiple Edition"
-															: "Unknown"
-													} Collection`}
-											</h3>
-											<p className="text-sm text-zinc-400 mt-1">
-												{resolved.address}
-											</p>
-										</div>
-										<div className="flex flex-col gap-2">
-											<div
-												className={`px-3 py-1 text-xs font-medium rounded ${
-													isExtensionRegistered
-														? "bg-success bg-opacity-20 text-success"
-														: "bg-zinc-700 text-zinc-400"
-												}`}
-											>
-												Extension: {isExtensionRegistered ? "✓" : "✗"}
-											</div>
-											<div
-												className={`px-3 py-1 text-xs font-medium rounded ${
-													isContractRegistered
-														? "bg-success bg-opacity-20 text-success"
-														: "bg-zinc-700 text-zinc-400"
-												}`}
-											>
-												Multiplex: {isContractRegistered ? "✓" : "✗"}
-											</div>
-										</div>
-									</div>
-
-									{resolved.type !== "Unknown" && (
-										<div className="space-y-4">
-											<RegisterExtension
-												creator={resolved.address}
-												type={resolved.type}
-											/>
-											<RegisterMultiplex creator={resolved.address} />
-										</div>
-									)}
-
-									{!canProceed && (
-										<div className="p-4 bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-30 mb-4">
-											<div className="flex items-center gap-2">
-												<svg
-													className="w-5 h-5 text-yellow-400"
-													fill="none"
-													stroke="currentColor"
-													viewBox="0 0 24 24"
-												>
-													<path
-														strokeLinecap="round"
-														strokeLinejoin="round"
-														strokeWidth={2}
-														d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-													/>
-												</svg>
-												<p className="text-sm text-yellow-300 font-medium">
-													Complete both registration steps above to enable
-													minting and updating
-												</p>
-											</div>
-										</div>
-									)}
-
-									<div className="flex gap-3 pt-4">
-										<button
-											className={`flex-1 ${
-												canProceed
-													? "btn-primary"
-													: "btn-primary opacity-50 cursor-not-allowed"
-											}`}
-											disabled={!canProceed}
-											onClick={() =>
-												navigate(
-													`/mint?creator=${resolved.address}&type=${resolved.type}`
-												)
-											}
-										>
-											Create New Artwork
-										</button>
-										<button
-											className={`flex-1 ${
-												canProceed
-													? "btn-secondary"
-													: "btn-secondary opacity-50 cursor-not-allowed"
-											}`}
-											disabled={!canProceed}
-											onClick={() =>
-												navigate(
-													`/update?creator=${resolved.address}&type=${resolved.type}`
-												)
-											}
-										>
-											Update Existing
-										</button>
-									</div>
-								</div>
-							</div>
-						)}
-					</>
-				)}
-
-				{/* Collector Interface */}
-				{userRole === "collector" && (
-					<>
-						<div className="flex items-center gap-4 mb-6">
-							<button
-								onClick={() => setUserRole(null)}
-								className="btn-ghost text-sm"
-							>
-								← Back to role selection
-							</button>
-						</div>
-
-						<div>
-							<div className="flex items-center justify-between mb-6">
-								<div>
-									<h2 className="text-2xl font-display font-bold text-zinc-100">
-										Collector Zone
-									</h2>
-									<p className="text-zinc-400 mt-1">
-										Enter a collection address to customize tokens you own
-									</p>
-								</div>
-							</div>
-
-							{address ? (
-								<div className="space-y-6">
 									<div>
-										<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-											Enter Collection Address
+										<h3
+											className={`text-lg md:text-xl font-bold ${
+												isDarkMode ? "text-zinc-100" : "text-zinc-900"
+											} mb-4`}
+										>
+											Or enter a collection address
 										</h3>
 										<div className="flex gap-3">
 											<input
@@ -869,61 +608,287 @@ export default function Collections() {
 											</button>
 										</div>
 									</div>
+								</>
+							)}
 
-									{resolved && (
-										<div className="card animate-slide-up">
-											<div className="space-y-4">
-												<div className="flex items-center justify-between">
-													<div>
-														<h3 className="text-lg font-semibold text-zinc-100">
-															{resolved.name ||
-																`${
-																	resolved.type === "ERC721"
-																		? "Single Edition"
-																		: resolved.type === "ERC1155"
-																		? "Multiple Edition"
-																		: "Unknown"
-																} Collection`}
-														</h3>
-														<p className="text-sm text-zinc-400 mt-1">
-															{resolved.address}
-														</p>
-													</div>
-													<div className="px-3 py-1 text-sm font-medium bg-success bg-opacity-20 text-success">
-														Ready for Collectors
-													</div>
+							{resolved && (
+								<div className="card animate-slide-up">
+									<div className="space-y-4">
+										<div className="flex items-center justify-between">
+											<div>
+												<h3
+													className={`text-lg font-semibold ${
+														isDarkMode ? "text-zinc-100" : "text-zinc-900"
+													}`}
+												>
+													{resolved.name ||
+														`${
+															resolved.type === "ERC721"
+																? "Single Edition"
+																: resolved.type === "ERC1155"
+																? "Multiple Edition"
+																: "Unknown"
+														} Collection`}
+												</h3>
+												<p
+													className={`text-sm ${
+														isDarkMode ? "text-zinc-400" : "text-zinc-600"
+													} mt-1`}
+												>
+													{resolved.address}
+												</p>
+											</div>
+											<div className="flex flex-col gap-2">
+												<div
+													className={`px-3 py-1 text-xs font-medium rounded ${
+														isExtensionRegistered
+															? "bg-success bg-opacity-20 text-success"
+															: isDarkMode
+															? "bg-zinc-700 text-zinc-400"
+															: "bg-zinc-200 text-zinc-600"
+													}`}
+												>
+													Extension: {isExtensionRegistered ? "✓" : "✗"}
 												</div>
-
-												<div className="pt-4">
-													<button
-														className="btn-primary w-full"
-														onClick={() =>
-															navigate(
-																`/collector-zone?creator=${resolved.address}&type=${resolved.type}`
-															)
-														}
-													>
-														Enter Collector Zone
-													</button>
-													<p className="text-sm text-zinc-400 mt-2 text-center">
-														Update tokens you own based on artist permissions
-													</p>
+												<div
+													className={`px-3 py-1 text-xs font-medium rounded ${
+														isContractRegistered
+															? "bg-success bg-opacity-20 text-success"
+															: isDarkMode
+															? "bg-zinc-700 text-zinc-400"
+															: "bg-zinc-200 text-zinc-600"
+													}`}
+												>
+													Wayfinder: {isContractRegistered ? "✓" : "✗"}
 												</div>
 											</div>
 										</div>
-									)}
-								</div>
-							) : (
-								<div className="text-center py-8 bg-zinc-800 rounded-lg">
-									<p className="text-zinc-400">
-										Connect your wallet to get started
-									</p>
+
+										{resolved.type !== "Unknown" && (
+											<div className="space-y-4">
+												<RegisterExtension
+													creator={resolved.address}
+													type={resolved.type}
+												/>
+												<RegisterWayfinder creator={resolved.address} />
+											</div>
+										)}
+
+										{!canProceed && (
+											<div
+												className={`p-4 mb-4 border ${
+													isDarkMode
+														? "bg-yellow-500 bg-opacity-10 border-yellow-500 border-opacity-30"
+														: "bg-yellow-50 border-yellow-300"
+												}`}
+											>
+												<div className="flex items-center gap-2">
+													<svg
+														className={`w-5 h-5 ${
+															isDarkMode ? "text-yellow-400" : "text-yellow-600"
+														}`}
+														fill="none"
+														stroke="currentColor"
+														viewBox="0 0 24 24"
+													>
+														<path
+															strokeLinecap="round"
+															strokeLinejoin="round"
+															strokeWidth={2}
+															d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+														/>
+													</svg>
+													<p
+														className={`text-sm font-medium ${
+															isDarkMode ? "text-yellow-300" : "text-yellow-800"
+														}`}
+													>
+														Complete both registration steps above to enable
+														minting and updating
+													</p>
+												</div>
+											</div>
+										)}
+
+										<div className="flex gap-3 pt-4">
+											<button
+												className={`flex-1 ${
+													canProceed
+														? "btn-primary"
+														: "btn-primary opacity-50 cursor-not-allowed"
+												}`}
+												disabled={!canProceed}
+												onClick={() =>
+													navigate(
+														`/mint?creator=${resolved.address}&type=${resolved.type}`
+													)
+												}
+											>
+												Create New Artwork
+											</button>
+											<button
+												className={`flex-1 ${
+													canProceed
+														? "btn-secondary"
+														: "btn-secondary opacity-50 cursor-not-allowed"
+												}`}
+												disabled={!canProceed}
+												onClick={() =>
+													navigate(
+														`/update?creator=${resolved.address}&type=${resolved.type}`
+													)
+												}
+											>
+												Update Existing
+											</button>
+										</div>
+									</div>
 								</div>
 							)}
-						</div>
-					</>
+						</>
+					</div>
+				)}
+
+				{/* Collector Interface - Normal Layout */}
+				{userRole === "collector" && (
+					<div className="px-4 md:px-8 py-8 max-w-6xl mx-auto space-y-6">
+						<>
+							<div className="flex items-center gap-4 mb-6">
+								<button
+									onClick={() => setUserRole(null)}
+									className="btn-ghost text-sm"
+								>
+									← Back to role selection
+								</button>
+							</div>
+
+							<div>
+								<div className="flex items-center justify-between mb-6">
+									<div>
+										<h2
+											className={`text-lg md:text-xl font-bold ${
+												isDarkMode ? "text-zinc-100" : "text-zinc-900"
+											}`}
+										>
+											Collector Zone
+										</h2>
+										<p
+											className={`text-sm md:text-base ${
+												isDarkMode ? "text-zinc-300" : "text-zinc-600"
+											}`}
+										>
+											Enter a collection address to customize tokens you own
+										</p>
+									</div>
+								</div>
+
+								{address ? (
+									<div className="space-y-6">
+										<div>
+											<h3
+												className={`text-lg md:text-xl font-bold ${
+													isDarkMode ? "text-zinc-100" : "text-zinc-900"
+												} mb-4`}
+											>
+												Enter Collection Address
+											</h3>
+											<div className="flex gap-3">
+												<input
+													className="input-field flex-1"
+													value={creatorInput}
+													onChange={(e) => setCreatorInput(e.target.value)}
+													placeholder="0x... collection address"
+												/>
+												<button
+													className="btn-primary"
+													onClick={checkCreator}
+													disabled={!creatorInput || checking}
+												>
+													{checking ? "Checking..." : "Check"}
+												</button>
+											</div>
+										</div>
+
+										{resolved && (
+											<div className="card animate-slide-up">
+												<div className="space-y-4">
+													<div className="flex items-center justify-between">
+														<div>
+															<h3
+																className={`text-lg font-semibold ${
+																	isDarkMode ? "text-zinc-100" : "text-zinc-900"
+																}`}
+															>
+																{resolved.name ||
+																	`${
+																		resolved.type === "ERC721"
+																			? "Single Edition"
+																			: resolved.type === "ERC1155"
+																			? "Multiple Edition"
+																			: "Unknown"
+																	} Collection`}
+															</h3>
+															<p
+																className={`text-sm ${
+																	isDarkMode ? "text-zinc-400" : "text-zinc-600"
+																} mt-1`}
+															>
+																{resolved.address}
+															</p>
+														</div>
+														<div className="px-3 py-1 text-sm font-medium bg-success bg-opacity-20 text-success">
+															Ready for Collectors
+														</div>
+													</div>
+
+													<div className="pt-4">
+														<button
+															className="btn-primary w-full"
+															onClick={() =>
+																navigate(
+																	`/collector-zone?creator=${resolved.address}&type=${resolved.type}`
+																)
+															}
+														>
+															Enter Collector Zone
+														</button>
+														<p
+															className={`text-sm ${
+																isDarkMode ? "text-zinc-400" : "text-zinc-600"
+															} mt-2 text-center`}
+														>
+															Update tokens you own based on artist permissions
+														</p>
+													</div>
+												</div>
+											</div>
+										)}
+									</div>
+								) : (
+									<div
+										className={`text-center py-8 rounded-lg space-y-4 ${
+											isDarkMode
+												? "bg-zinc-800"
+												: "bg-white border border-zinc-300"
+										}`}
+									>
+										<p
+											className={isDarkMode ? "text-zinc-400" : "text-zinc-600"}
+										>
+											Connect your wallet to get started
+										</p>
+										<div className="flex justify-center">
+											<ConnectButtonPrimary />
+										</div>
+									</div>
+								)}
+							</div>
+						</>
+					</div>
 				)}
 			</div>
+
+			<Footer isDarkMode={isDarkMode} />
 		</div>
 	);
 }

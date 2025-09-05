@@ -8,15 +8,15 @@ import { LibString } from "solady/utils/LibString.sol";
 import { LibZip } from "solady/utils/LibZip.sol";
 import { Ownable } from "solady/auth/Ownable.sol";
 import { IAdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/IAdminControl.sol";
-import { IMultiplex } from "./interfaces/IMultiplex.sol";
-import { IMultiplexCreator } from "./interfaces/IMultiplexCreator.sol";
+import { IWayfinder } from "./interfaces/IWayfinder.sol";
+import { IWayfinderCreator } from "./interfaces/IWayfinderCreator.sol";
 
 /**
- * @title Multiplex
+ * @title Wayfinder
  * @author Yigit Duman (@yigitduman)
  * @notice A universal URI distribution and management system for any smart contract
  */
-contract Multiplex is IMultiplex, Ownable, Lifebuoy {
+contract Wayfinder is IWayfinder, Ownable, Lifebuoy {
     // Permission bit positions
     uint16 constant ARTIST_UPDATE_THUMB = 2 ** 0;
     uint16 constant ARTIST_UPDATE_META = 2 ** 1;
@@ -41,7 +41,7 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
     mapping(address => mapping(uint256 => Token)) public tokenData;
 
     /// @notice Mapping: creator contract => operator address for admin/ownership checks
-    /// @dev Operator handles IMultiplexCreator interface calls.
+    /// @dev Operator handles IWayfinderCreator interface calls.
     /// For most contracts, operator = contract itself.
     /// For Manifold/Transient extensions, operator = extension address.
     mapping(address => address) public contractOperators;
@@ -121,7 +121,7 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
     {
         address operator = contractOperators[contractAddress];
         // Not doing try/catch here since any registered contract should implement the interface
-        return IMultiplexCreator(operator).isTokenOwner(contractAddress, account, tokenId);
+        return IWayfinderCreator(operator).isTokenOwner(contractAddress, account, tokenId);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -131,7 +131,7 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
     /// @notice Register a contract with its operator contract
     /// @param contractAddress The contract address
     /// @param operatorAddress The operator address (use address(0) to set as contractAddress)
-    /// @dev Only the contract owner/admin can register. Operator handles IMultiplexCreator calls.
+    /// @dev Only the contract owner/admin can register. Operator handles IWayfinderCreator calls.
     function registerContract(
         address contractAddress,
         address operatorAddress
@@ -142,7 +142,7 @@ contract Multiplex is IMultiplex, Ownable, Lifebuoy {
         // If operatorAddress is zero, use the contract address itself
         address operator = operatorAddress == address(0) ? contractAddress : operatorAddress;
 
-        require(IMultiplexCreator(operator).supportsInterface(type(IMultiplexCreator).interfaceId), InvalidInterface());
+        require(IWayfinderCreator(operator).supportsInterface(type(IWayfinderCreator).interfaceId), InvalidInterface());
 
         contractOperators[contractAddress] = operator;
 

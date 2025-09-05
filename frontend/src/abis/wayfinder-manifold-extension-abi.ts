@@ -1,7 +1,7 @@
-export const multiplexExtensionAbi = [
+export const wayfinderExtensionAbi = [
 	{
 		type: "constructor",
-		inputs: [{ name: "_multiplex", type: "address", internalType: "address" }],
+		inputs: [{ name: "_wayfinder", type: "address", internalType: "address" }],
 		stateMutability: "nonpayable",
 	},
 	{
@@ -20,7 +20,7 @@ export const multiplexExtensionAbi = [
 	},
 	{
 		type: "function",
-		name: "getMultiplex",
+		name: "getWayfinder",
 		inputs: [],
 		outputs: [{ name: "", type: "address", internalType: "address" }],
 		stateMutability: "view",
@@ -60,13 +60,13 @@ export const multiplexExtensionAbi = [
 			{
 				name: "config",
 				type: "tuple",
-				internalType: "struct IMultiplex.InitConfig",
+				internalType: "struct IWayfinder.InitConfig",
 				components: [
 					{ name: "metadata", type: "string", internalType: "string" },
 					{
 						name: "artwork",
 						type: "tuple",
-						internalType: "struct IMultiplex.Artwork",
+						internalType: "struct IWayfinder.Artwork",
 						components: [
 							{
 								name: "artistUris",
@@ -91,17 +91,17 @@ export const multiplexExtensionAbi = [
 					{
 						name: "thumbnail",
 						type: "tuple",
-						internalType: "struct IMultiplex.Thumbnail",
+						internalType: "struct IWayfinder.Thumbnail",
 						components: [
 							{
 								name: "kind",
 								type: "uint8",
-								internalType: "enum IMultiplex.ThumbnailKind",
+								internalType: "enum IWayfinder.ThumbnailKind",
 							},
 							{
 								name: "onChain",
 								type: "tuple",
-								internalType: "struct IMultiplex.OnChainThumbnail",
+								internalType: "struct IWayfinder.OnChainThumbnail",
 								components: [
 									{ name: "mimeType", type: "string", internalType: "string" },
 									{
@@ -115,7 +115,7 @@ export const multiplexExtensionAbi = [
 							{
 								name: "offChain",
 								type: "tuple",
-								internalType: "struct IMultiplex.OffChainThumbnail",
+								internalType: "struct IWayfinder.OffChainThumbnail",
 								components: [
 									{ name: "uris", type: "string[]", internalType: "string[]" },
 									{
@@ -130,19 +130,33 @@ export const multiplexExtensionAbi = [
 					{
 						name: "displayMode",
 						type: "uint8",
-						internalType: "enum IMultiplex.DisplayMode",
+						internalType: "enum IWayfinder.DisplayMode",
 					},
 					{
 						name: "permissions",
 						type: "tuple",
-						internalType: "struct IMultiplex.Permissions",
+						internalType: "struct IWayfinder.Permissions",
 						components: [
 							{ name: "flags", type: "uint16", internalType: "uint16" },
+						],
+					},
+					{
+						name: "htmlTemplate",
+						type: "tuple",
+						internalType: "struct IWayfinder.HtmlTemplate",
+						components: [
+							{ name: "chunks", type: "address[]", internalType: "address[]" },
+							{ name: "zipped", type: "bool", internalType: "bool" },
 						],
 					},
 				],
 			},
 			{ name: "thumbnailChunks", type: "bytes[]", internalType: "bytes[]" },
+			{
+				name: "htmlTemplateChunks",
+				type: "string[]",
+				internalType: "string[]",
+			},
 		],
 		outputs: [],
 		stateMutability: "payable",
@@ -156,13 +170,13 @@ export const multiplexExtensionAbi = [
 			{
 				name: "config",
 				type: "tuple",
-				internalType: "struct IMultiplex.InitConfig",
+				internalType: "struct IWayfinder.InitConfig",
 				components: [
 					{ name: "metadata", type: "string", internalType: "string" },
 					{
 						name: "artwork",
 						type: "tuple",
-						internalType: "struct IMultiplex.Artwork",
+						internalType: "struct IWayfinder.Artwork",
 						components: [
 							{
 								name: "artistUris",
@@ -187,17 +201,17 @@ export const multiplexExtensionAbi = [
 					{
 						name: "thumbnail",
 						type: "tuple",
-						internalType: "struct IMultiplex.Thumbnail",
+						internalType: "struct IWayfinder.Thumbnail",
 						components: [
 							{
 								name: "kind",
 								type: "uint8",
-								internalType: "enum IMultiplex.ThumbnailKind",
+								internalType: "enum IWayfinder.ThumbnailKind",
 							},
 							{
 								name: "onChain",
 								type: "tuple",
-								internalType: "struct IMultiplex.OnChainThumbnail",
+								internalType: "struct IWayfinder.OnChainThumbnail",
 								components: [
 									{ name: "mimeType", type: "string", internalType: "string" },
 									{
@@ -211,7 +225,7 @@ export const multiplexExtensionAbi = [
 							{
 								name: "offChain",
 								type: "tuple",
-								internalType: "struct IMultiplex.OffChainThumbnail",
+								internalType: "struct IWayfinder.OffChainThumbnail",
 								components: [
 									{ name: "uris", type: "string[]", internalType: "string[]" },
 									{
@@ -226,29 +240,43 @@ export const multiplexExtensionAbi = [
 					{
 						name: "displayMode",
 						type: "uint8",
-						internalType: "enum IMultiplex.DisplayMode",
+						internalType: "enum IWayfinder.DisplayMode",
 					},
 					{
 						name: "permissions",
 						type: "tuple",
-						internalType: "struct IMultiplex.Permissions",
+						internalType: "struct IWayfinder.Permissions",
 						components: [
 							{ name: "flags", type: "uint16", internalType: "uint16" },
+						],
+					},
+					{
+						name: "htmlTemplate",
+						type: "tuple",
+						internalType: "struct IWayfinder.HtmlTemplate",
+						components: [
+							{ name: "chunks", type: "address[]", internalType: "address[]" },
+							{ name: "zipped", type: "bool", internalType: "bool" },
 						],
 					},
 				],
 			},
 			{ name: "thumbnailChunks", type: "bytes[]", internalType: "bytes[]" },
+			{
+				name: "htmlTemplateChunks",
+				type: "string[]",
+				internalType: "string[]",
+			},
 		],
 		outputs: [],
 		stateMutability: "payable",
 	},
 	{
 		type: "function",
-		name: "multiplex",
+		name: "wayfinder",
 		inputs: [],
 		outputs: [
-			{ name: "", type: "address", internalType: "contract IMultiplex" },
+			{ name: "", type: "address", internalType: "contract IWayfinder" },
 		],
 		stateMutability: "view",
 	},
@@ -339,8 +367,8 @@ export const multiplexExtensionAbi = [
 	},
 	{
 		type: "function",
-		name: "setMultiplex",
-		inputs: [{ name: "_multiplex", type: "address", internalType: "address" }],
+		name: "setWayfinder",
+		inputs: [{ name: "_wayfinder", type: "address", internalType: "address" }],
 		outputs: [],
 		stateMutability: "nonpayable",
 	},
@@ -408,10 +436,10 @@ export const multiplexExtensionAbi = [
 	},
 	{
 		type: "event",
-		name: "MultiplexUpdated",
+		name: "WayfinderUpdated",
 		inputs: [
 			{
-				name: "newMultiplex",
+				name: "newWayfinder",
 				type: "address",
 				indexed: true,
 				internalType: "address",
@@ -496,24 +524,8 @@ export const multiplexExtensionAbi = [
 	},
 	{ type: "error", name: "InvalidIndexRange", inputs: [] },
 	{ type: "error", name: "InvalidRecipient", inputs: [] },
-	{ type: "error", name: "MultiplexNotSet", inputs: [] },
+	{ type: "error", name: "WayfinderNotSet", inputs: [] },
 	{ type: "error", name: "RescueTransferFailed", inputs: [] },
 	{ type: "error", name: "RescueUnauthorizedOrLocked", inputs: [] },
 	{ type: "error", name: "WalletNotAdmin", inputs: [] },
-	// Additional Multiplex errors that might be thrown
-	{ type: "error", name: "AlreadyInitialized", inputs: [] },
-	{ type: "error", name: "ArtistPermissionRevoked", inputs: [] },
-	{ type: "error", name: "CollectorPermissionDenied", inputs: [] },
-	{ type: "error", name: "ContractNotRegistered", inputs: [] },
-	{ type: "error", name: "InvalidArtworkUris", inputs: [] },
-	{ type: "error", name: "InvalidFileHash", inputs: [] },
-	{ type: "error", name: "InvalidMetadata", inputs: [] },
-	{ type: "error", name: "InvalidMimeType", inputs: [] },
-	{ type: "error", name: "InvalidSelectedArtistUriIndex", inputs: [] },
-	{ type: "error", name: "InvalidThumbnailKind", inputs: [] },
-	{ type: "error", name: "NotTokenOwner", inputs: [] },
-	{ type: "error", name: "NotTokenOwnerOrAdmin", inputs: [] },
-	{ type: "error", name: "OnChainThumbnailEmpty", inputs: [] },
-	{ type: "error", name: "Unauthorized", inputs: [] },
-	{ type: "error", name: "UnauthorizedOperator", inputs: [] },
 ] as const;

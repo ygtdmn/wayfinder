@@ -2,17 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global dark theme styles */
+/* Global styles */
 html,
 body,
 #root {
 	height: 100%;
 }
 
-html {
-	color-scheme: dark;
+body {
+	@apply font-mono;
 }
 
-body {
-	@apply bg-zinc-950 text-zinc-100;
+/* RainbowKit modal customization - remove border radius */
+[data-rk] [role="dialog"] {
+	border-radius: 0 !important;
+}
+
+/* All RainbowKit modals and panels - no border radius */
+[data-rk] * {
+	border-radius: 0 !important;
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getFileInfo } from "../utils/fileValidation";
+import { useTheme } from "../hooks/useTheme";
 
 interface FilePreviewProps {
 	file: File | null;
@@ -14,6 +15,7 @@ export default function FilePreview({
 	className = "",
 	maxHeight = "max-h-64",
 }: FilePreviewProps) {
+	const { isDarkMode } = useTheme();
 	const [htmlContent, setHtmlContent] = useState<string>("");
 	const [isHtmlLoading, setIsHtmlLoading] = useState(false);
 
@@ -63,9 +65,9 @@ export default function FilePreview({
 			case "audio":
 				return (
 					<div className="text-center space-y-4">
-						<div className="w-24 h-24 mx-auto bg-zinc-700 rounded-lg flex items-center justify-center">
+						<div className={`w-24 h-24 mx-auto ${isDarkMode ? 'bg-zinc-700' : 'bg-zinc-300'} rounded-lg flex items-center justify-center`}>
 							<svg
-								className="w-12 h-12 text-zinc-400"
+								className={`w-12 h-12 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}
 								fill="none"
 								stroke="currentColor"
 								viewBox="0 0 24 24"
@@ -94,12 +96,12 @@ export default function FilePreview({
 					<div className="space-y-4">
 						{isHtmlLoading ? (
 							<div className="text-center py-8">
-								<div className="animate-spin w-6 h-6 border-2 border-zinc-600 border-t-white rounded-full mx-auto"></div>
-								<p className="text-zinc-400 mt-2">Loading HTML preview...</p>
+								<div className={`animate-spin w-6 h-6 border-2 ${isDarkMode ? 'border-zinc-600 border-t-white' : 'border-zinc-300 border-t-black'} rounded-full mx-auto`}></div>
+								<p className={`${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'} mt-2`}>Loading HTML preview...</p>
 							</div>
 						) : (
 							<>
-								<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4 max-h-64 overflow-auto">
+								<div className={`${isDarkMode ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-100 border-zinc-300'} border rounded-lg p-4 max-h-64 overflow-auto`}>
 									<iframe
 										srcDoc={htmlContent}
 										className="w-full h-48 border-0 bg-white rounded"
@@ -112,10 +114,10 @@ export default function FilePreview({
 									className="text-left"
 									onClick={(e) => e.stopPropagation()}
 								>
-									<summary className="text-sm text-zinc-400 cursor-pointer hover:text-zinc-300">
+									<summary className={`text-sm ${isDarkMode ? 'text-zinc-400 hover:text-zinc-300' : 'text-zinc-600 hover:text-zinc-800'} cursor-pointer`}>
 										View HTML source
 									</summary>
-									<pre className="text-xs text-zinc-500 mt-2 p-3 bg-zinc-900 rounded border overflow-auto max-h-32">
+									<pre className={`text-xs ${isDarkMode ? 'text-zinc-500 bg-zinc-900' : 'text-zinc-600 bg-zinc-50'} mt-2 p-3 rounded border overflow-auto max-h-32`}>
 										<code>
 											{htmlContent.slice(0, 1000)}
 											{htmlContent.length > 1000 ? "..." : ""}
@@ -130,9 +132,9 @@ export default function FilePreview({
 			case "3d":
 				return (
 					<div className="text-center space-y-4">
-						<div className="w-32 h-32 mx-auto bg-zinc-700 rounded-lg flex items-center justify-center">
+						<div className={`w-32 h-32 mx-auto ${isDarkMode ? 'bg-zinc-700' : 'bg-zinc-300'} rounded-lg flex items-center justify-center`}>
 							<svg
-								className="w-16 h-16 text-zinc-400"
+								className={`w-16 h-16 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}
 								fill="none"
 								stroke="currentColor"
 								viewBox="0 0 24 24"
@@ -145,8 +147,8 @@ export default function FilePreview({
 								/>
 							</svg>
 						</div>
-						<p className="text-zinc-300 font-medium">3D Model File</p>
-						<p className="text-sm text-zinc-400">
+						<p className={`${isDarkMode ? 'text-zinc-300' : 'text-zinc-700'} font-medium`}>3D Model File</p>
+						<p className={`text-sm ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>
 							{file.name} • {(file.size / 1024).toFixed(1)} KB
 						</p>
 					</div>
@@ -155,9 +157,9 @@ export default function FilePreview({
 			default:
 				return (
 					<div className="text-center space-y-4">
-						<div className="w-32 h-32 mx-auto bg-zinc-700 rounded-lg flex items-center justify-center">
+						<div className={`w-32 h-32 mx-auto ${isDarkMode ? 'bg-zinc-700' : 'bg-zinc-300'} rounded-lg flex items-center justify-center`}>
 							<svg
-								className="w-16 h-16 text-zinc-400"
+								className={`w-16 h-16 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}
 								fill="none"
 								stroke="currentColor"
 								viewBox="0 0 24 24"
@@ -170,10 +172,10 @@ export default function FilePreview({
 								/>
 							</svg>
 						</div>
-						<p className="text-zinc-300 font-medium">
+						<p className={`${isDarkMode ? 'text-zinc-300' : 'text-zinc-700'} font-medium`}>
 							{category?.toUpperCase()} File
 						</p>
-						<p className="text-sm text-zinc-400">
+						<p className={`text-sm ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>
 							{file.name} • {(file.size / 1024).toFixed(1)} KB
 						</p>
 					</div>
@@ -187,7 +189,7 @@ export default function FilePreview({
 			onClick={(e) => e.stopPropagation()}
 		>
 			{renderPreview()}
-			<div className="text-sm text-zinc-400 text-left">
+			<div className={`text-sm ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'} text-left`}>
 				<p>File: {file.name}</p>
 				<p>Type: {file.type || "Unknown"}</p>
 				<p>Size: {(file.size / 1024).toFixed(1)} KB</p>

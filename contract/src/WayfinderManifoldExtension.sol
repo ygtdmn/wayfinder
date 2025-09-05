@@ -2,8 +2,8 @@
 pragma solidity >=0.8.30 <0.9.0;
 
 import { AdminControl } from "@manifoldxyz/libraries-solidity/contracts/access/AdminControl.sol";
-import { IMultiplex } from "./interfaces/IMultiplex.sol";
-import { IMultiplexCreator } from "./interfaces/IMultiplexCreator.sol";
+import { IWayfinder } from "./interfaces/IWayfinder.sol";
+import { IWayfinderCreator } from "./interfaces/IWayfinderCreator.sol";
 import { Lifebuoy } from "solady/utils/Lifebuoy.sol";
 import { IERC721CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC721CreatorCore.sol";
 import { IERC1155CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
@@ -14,13 +14,13 @@ import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 
 /**
- * @title MultiplexManifoldExtension
+ * @title WayfinderManifoldExtension
  * @author Yigit Duman (@yigitduman)
- * @notice A Manifold Creator Extension for minting tokens with Multiplex
+ * @notice A Manifold Creator Extension for minting tokens with Wayfinder
  */
-contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, IMultiplexCreator, Lifebuoy {
-    /// @notice The Multiplex contract that handles token data and rendering
-    IMultiplex public multiplex;
+contract WayfinderManifoldExtension is AdminControl, ICreatorExtensionTokenURI, IWayfinderCreator, Lifebuoy {
+    /// @notice The Wayfinder contract that handles token data and rendering
+    IWayfinder public wayfinder;
 
     /*//////////////////////////////////////////////////////////////
                             CUSTOM ERRORS
@@ -28,7 +28,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
 
     error WalletNotAdmin();
     error InvalidIndexRange();
-    error MultiplexNotSet();
+    error WayfinderNotSet();
     error InvalidRecipient();
 
     /*//////////////////////////////////////////////////////////////
@@ -39,33 +39,33 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     event TokenMintedERC1155(
         address indexed creator, uint256 indexed tokenId, address[] indexed recipients, uint256[] quantities
     );
-    event MultiplexUpdated(address indexed newMultiplex);
+    event WayfinderUpdated(address indexed newWayfinder);
 
     /*//////////////////////////////////////////////////////////////
                             CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Initialize the contract with a Multiplex instance
-    /// @param _multiplex The Multiplex contract address
-    constructor(address _multiplex) {
-        multiplex = IMultiplex(_multiplex);
+    /// @notice Initialize the contract with a Wayfinder instance
+    /// @param _wayfinder The Wayfinder contract address
+    constructor(address _wayfinder) {
+        wayfinder = IWayfinder(_wayfinder);
     }
 
     /*//////////////////////////////////////////////////////////////
-                             MULTIPLEX
+                             WAYFINDER
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Update the Multiplex contract address (admin only)
-    /// @param _multiplex The new Multiplex contract address
-    function setMultiplex(address _multiplex) external adminRequired {
-        multiplex = IMultiplex(_multiplex);
-        emit MultiplexUpdated(_multiplex);
+    /// @notice Update the Wayfinder contract address (admin only)
+    /// @param _wayfinder The new Wayfinder contract address
+    function setWayfinder(address _wayfinder) external adminRequired {
+        wayfinder = IWayfinder(_wayfinder);
+        emit WayfinderUpdated(_wayfinder);
     }
 
-    /// @notice Get Multiplex contract address
-    /// @return The Multiplex contract address
-    function getMultiplex() external view returns (address) {
-        return address(multiplex);
+    /// @notice Get Wayfinder contract address
+    /// @return The Wayfinder contract address
+    function getWayfinder() external view returns (address) {
+        return address(wayfinder);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -138,7 +138,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         address contractAddress,
         address[] calldata recipients,
         uint256[] calldata quantities,
-        IMultiplex.InitConfig memory config,
+        IWayfinder.InitConfig memory config,
         bytes[] calldata thumbnailChunks,
         string[] calldata htmlTemplateChunks
     )
@@ -146,7 +146,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         payable
         contractAdminRequired(contractAddress)
     {
-        require(address(multiplex) != address(0), MultiplexNotSet());
+        require(address(wayfinder) != address(0), WayfinderNotSet());
         require(recipients.length > 0, InvalidIndexRange());
         require(quantities.length > 0, InvalidIndexRange());
 
@@ -158,9 +158,9 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         string[] memory uris = new string[](0); // Empty array uses default URI
         uint256[] memory tokenIds = IERC1155CreatorCore(contractAddress).mintExtensionNew(recipients, quantities, uris);
 
-        // Initialize token data in Multiplex and emit events
+        // Initialize token data in Wayfinder and emit events
         uint256 tokenId = tokenIds[0]; // There's only one token minted
-        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
+        wayfinder.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
 
         emit TokenMintedERC1155(contractAddress, tokenId, recipients, quantities);
     }
@@ -174,7 +174,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     function mintERC721(
         address contractAddress,
         address recipient,
-        IMultiplex.InitConfig memory config,
+        IWayfinder.InitConfig memory config,
         bytes[] calldata thumbnailChunks,
         string[] calldata htmlTemplateChunks
     )
@@ -182,14 +182,14 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
         payable
         contractAdminRequired(contractAddress)
     {
-        require(address(multiplex) != address(0), MultiplexNotSet());
+        require(address(wayfinder) != address(0), WayfinderNotSet());
         require(recipient != address(0), InvalidRecipient());
 
         // Mint tokens via Manifold creator contract
         uint256 tokenId = IERC721CreatorCore(contractAddress).mintExtension(recipient);
 
-        // Initialize token data in Multiplex and emit events
-        multiplex.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
+        // Initialize token data in Wayfinder and emit events
+        wayfinder.initializeTokenData(contractAddress, tokenId, config, thumbnailChunks, htmlTemplateChunks);
         emit TokenMintedERC721(contractAddress, tokenId, recipient);
     }
 
@@ -202,7 +202,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     /// @param tokenId The token ID
     /// @return The token URI
     function tokenURI(address creator, uint256 tokenId) external view override returns (string memory) {
-        return multiplex.renderMetadata(creator, tokenId);
+        return wayfinder.renderMetadata(creator, tokenId);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -214,7 +214,7 @@ contract MultiplexManifoldExtension is AdminControl, ICreatorExtensionTokenURI, 
     /// @return True if interface is supported
     function supportsInterface(bytes4 interfaceId) public view virtual override(AdminControl, IERC165) returns (bool) {
         return interfaceId == type(ICreatorExtensionTokenURI).interfaceId
-            || interfaceId == type(IMultiplexCreator).interfaceId || AdminControl.supportsInterface(interfaceId)
+            || interfaceId == type(IWayfinderCreator).interfaceId || AdminControl.supportsInterface(interfaceId)
             || super.supportsInterface(interfaceId);
     }
 }

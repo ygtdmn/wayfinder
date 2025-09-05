@@ -2,10 +2,10 @@
 pragma solidity >=0.8.30 <0.9.0;
 
 import { Ownable } from "solady/auth/Ownable.sol";
-import { IMultiplexCreator } from "src/interfaces/IMultiplexCreator.sol";
+import { IWayfinderCreator } from "src/interfaces/IWayfinderCreator.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-contract MockOwnable is Ownable, IMultiplexCreator {
+contract MockOwnable is Ownable, IWayfinderCreator {
     constructor(address _owner) {
         _initializeOwner(_owner);
     }
@@ -20,6 +20,6 @@ contract MockOwnable is Ownable, IMultiplexCreator {
     }
 
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IMultiplexCreator).interfaceId || interfaceId == type(IERC165).interfaceId;
+        return interfaceId == type(IWayfinderCreator).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 }

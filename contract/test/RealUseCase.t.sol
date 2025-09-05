@@ -4,9 +4,9 @@ pragma solidity >=0.8.30 <0.9.0;
 import { Test } from "forge-std/src/Test.sol";
 import { IERC1155CreatorCore } from "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
 import { console2 } from "forge-std/src/console2.sol";
-import { MultiplexManifoldExtension } from "src/MultiplexManifoldExtension.sol";
-import { Multiplex } from "src/Multiplex.sol";
-import { IMultiplex } from "src/interfaces/IMultiplex.sol";
+import { WayfinderManifoldExtension } from "src/WayfinderManifoldExtension.sol";
+import { Wayfinder } from "src/Wayfinder.sol";
+import { IWayfinder } from "src/interfaces/IWayfinder.sol";
 import { IERC1155MetadataURI } from "@openzeppelin/contracts/interfaces/IERC1155MetadataURI.sol";
 
 contract RealUseCaseTest is Test {
@@ -27,20 +27,20 @@ contract RealUseCaseTest is Test {
         string memory metadata =
             unicode"\"name\": \"Off-Chain Art\",\"description\": \"An artwork that blends six historic paintings which were altered without the artists' intent: The Night Watch by Rembrandt, The Last Supper by Leonardo da Vinci, The Vision of Saint John by El Greco, The Last Judgement by Michelangelo, Las Meninas by Diego Velázquez, and The Death of Actaeon by Titian.\",\"attributes\": [{\"trait_type\": \"Artwork 1\", \"value\": \"The Night Watch by Rembrandt\"}, {\"trait_type\": \"Artwork 2\", \"value\": \"The Last Supper by Leonardo da Vinci\"}, {\"trait_type\": \"Artwork 3\", \"value\": \"The Vision of Saint John by El Greco\"}, {\"trait_type\": \"Artwork 4\", \"value\": \"The Last Judgement by Michelangelo\"}, {\"trait_type\": \"Artwork 5\", \"value\": \"Las Meninas by Diego Velázquez\"}, {\"trait_type\": \"Artwork 6\", \"value\": \"The Death of Actaeon by Titian\"}]";
 
-        Multiplex multiplex = new Multiplex(htmlTemplate, false);
-        MultiplexManifoldExtension extension = new MultiplexManifoldExtension(address(multiplex));
+        Wayfinder wayfinder = new Wayfinder(htmlTemplate, false);
+        WayfinderManifoldExtension extension = new WayfinderManifoldExtension(address(wayfinder));
 
         IERC1155CreatorCore ephemera = IERC1155CreatorCore(address(0xCb337152b6181683010D07e3f00e7508cd348BC7));
         ephemera.registerExtension(address(extension), "");
 
-        // Register the ephemera contract with Multiplex
-        multiplex.registerContract(address(ephemera), address(extension));
+        // Register the ephemera contract with Wayfinder
+        wayfinder.registerContract(address(ephemera), address(extension));
         address[] memory recipients = new address[](1);
         recipients[0] = address(0x6);
         uint256[] memory quantities = new uint256[](1);
         quantities[0] = 11;
 
-        IMultiplex.Artwork memory artwork = IMultiplex.Artwork({
+        IWayfinder.Artwork memory artwork = IWayfinder.Artwork({
             artistUris: new string[](5),
             collectorUris: new string[](0),
             mimeType: "image/png",
@@ -56,10 +56,10 @@ contract RealUseCaseTest is Test {
         artwork.artistUris[4] = "https://ipfs.io/ipfs/5";
         artwork.selectedArtistUriIndex = 0;
 
-        IMultiplex.Thumbnail memory thumbnail = IMultiplex.Thumbnail({
-            kind: IMultiplex.ThumbnailKind.OFF_CHAIN,
-            onChain: IMultiplex.OnChainThumbnail({ mimeType: "", chunks: new address[](0), zipped: false }),
-            offChain: IMultiplex.OffChainThumbnail({ uris: new string[](5), selectedUriIndex: 0 })
+        IWayfinder.Thumbnail memory thumbnail = IWayfinder.Thumbnail({
+            kind: IWayfinder.ThumbnailKind.OFF_CHAIN,
+            onChain: IWayfinder.OnChainThumbnail({ mimeType: "", chunks: new address[](0), zipped: false }),
+            offChain: IWayfinder.OffChainThumbnail({ uris: new string[](5), selectedUriIndex: 0 })
         });
 
         thumbnail.offChain.uris[0] = "https://ipfs.io/ipfs/thumb1";
@@ -69,13 +69,13 @@ contract RealUseCaseTest is Test {
         thumbnail.offChain.uris[4] = "https://ipfs.io/ipfs/thumb5";
         thumbnail.offChain.selectedUriIndex = 2;
 
-        IMultiplex.DisplayMode displayMode = IMultiplex.DisplayMode.HTML;
-        IMultiplex.Permissions memory permissions = IMultiplex.Permissions({ flags: uint16(0xFFFF) });
+        IWayfinder.DisplayMode displayMode = IWayfinder.DisplayMode.HTML;
+        IWayfinder.Permissions memory permissions = IWayfinder.Permissions({ flags: uint16(0xFFFF) });
 
-        IMultiplex.HtmlTemplate memory htmlTemplateStruct =
-            IMultiplex.HtmlTemplate({ chunks: new address[](0), zipped: false });
+        IWayfinder.HtmlTemplate memory htmlTemplateStruct =
+            IWayfinder.HtmlTemplate({ chunks: new address[](0), zipped: false });
 
-        IMultiplex.InitConfig memory config = IMultiplex.InitConfig({
+        IWayfinder.InitConfig memory config = IWayfinder.InitConfig({
             metadata: metadata,
             artwork: artwork,
             thumbnail: thumbnail,
@@ -96,9 +96,9 @@ contract RealUseCaseTest is Test {
         vm.prank(address(0x6));
         string[] memory newUris = new string[](1);
         newUris[0] = "https://ipfs.io/ipfs/test6";
-        multiplex.addArtworkUris(address(ephemera), 8, newUris);
+        wayfinder.addArtworkUris(address(ephemera), 8, newUris);
 
-        string[] memory uris = multiplex.getArtistArtworkUris(address(ephemera), 8);
+        string[] memory uris = wayfinder.getArtistArtworkUris(address(ephemera), 8);
         for (uint256 i = 0; i < uris.length; i++) {
             console2.log(uris[i]);
         }

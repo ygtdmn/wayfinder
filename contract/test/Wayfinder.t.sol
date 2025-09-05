@@ -2,18 +2,18 @@
 pragma solidity >=0.8.30 <0.9.0;
 
 import { Test, Vm } from "forge-std/src/Test.sol";
-import { Multiplex } from "src/Multiplex.sol";
-import { IMultiplex } from "src/interfaces/IMultiplex.sol";
+import { Wayfinder } from "src/Wayfinder.sol";
+import { IWayfinder } from "src/interfaces/IWayfinder.sol";
 import { MockCustomOwnership } from "test/mocks/MockCustomOwnership.sol";
 import { MockAdminControl } from "test/mocks/MockAdminControl.sol";
 import { LibZip } from "solady/utils/LibZip.sol";
 import { MockERC721 } from "test/mocks/MockERC721.sol";
 import { MockERC1155 } from "test/mocks/MockERC1155.sol";
 import { MockOwnable } from "test/mocks/MockOwnable.sol";
-import { MockMultiplexExtension } from "test/mocks/MockMultiplexExtension.sol";
-import { MultiplexHarness } from "test/MultiplexHarness.sol";
+import { MockWayfinderExtension } from "test/mocks/MockWayfinderExtension.sol";
+import { WayfinderHarness } from "test/WayfinderHarness.sol";
 
-contract MultiplexTest is Test {
+contract WayfinderTest is Test {
     // Test actors
     address owner = address(0x01);
     address artist = address(0x02);
@@ -21,14 +21,14 @@ contract MultiplexTest is Test {
     address stranger = address(0x04);
 
     // Core contracts
-    Multiplex multiplex;
-    MultiplexHarness harness;
+    Wayfinder wayfinder;
+    WayfinderHarness harness;
     MockAdminControl adminControl;
     MockERC721 mockERC721;
     MockERC1155 mockERC1155;
     MockOwnable mockOwnable;
     MockCustomOwnership mockCustomOwnership;
-    MockMultiplexExtension extension;
+    MockWayfinderExtension extension;
 
     // Test data
     string constant DEFAULT_HTML_TEMPLATE = "<html>{{FILE_URIS}}</html>";
@@ -38,7 +38,7 @@ contract MultiplexTest is Test {
     string[] testThumbnailUris;
     uint256 constant TEST_TOKEN_ID = 1;
 
-    // Permission constants (copied from Multiplex.sol)
+    // Permission constants (copied from Wayfinder.sol)
     uint16 constant ARTIST_UPDATE_THUMB = 2 ** 0;
     uint16 constant ARTIST_UPDATE_META = 2 ** 1;
     uint16 constant ARTIST_CHOOSE_URIS = 2 ** 2;
@@ -59,9 +59,9 @@ contract MultiplexTest is Test {
         vm.startPrank(owner);
 
         // Deploy main contracts
-        multiplex = new Multiplex(DEFAULT_HTML_TEMPLATE, false);
-        harness = new MultiplexHarness();
-        extension = new MockMultiplexExtension(address(multiplex));
+        wayfinder = new Wayfinder(DEFAULT_HTML_TEMPLATE, false);
+        harness = new WayfinderHarness();
+        extension = new MockWayfinderExtension(address(wayfinder));
 
         // Deploy admin control and set artist as admin
         adminControl = new MockAdminControl();
@@ -86,19 +86,19 @@ contract MultiplexTest is Test {
 
         vm.stopPrank();
 
-        // Register contracts with Multiplex using the extension as operator
+        // Register contracts with Wayfinder using the extension as operator
         // Need to do this as the contract admin for each contract
         vm.prank(artist, artist);
-        multiplex.registerContract(address(adminControl), address(extension));
-        
+        wayfinder.registerContract(address(adminControl), address(extension));
+
         vm.prank(artist, artist);
-        multiplex.registerContract(address(mockERC721), address(extension));
-        
+        wayfinder.registerContract(address(mockERC721), address(extension));
+
         vm.prank(artist, artist);
-        multiplex.registerContract(address(mockERC1155), address(extension));
-        
+        wayfinder.registerContract(address(mockERC1155), address(extension));
+
         vm.prank(artist, artist);
-        multiplex.registerContract(address(mockOwnable), address(0));
+        wayfinder.registerContract(address(mockOwnable), address(0));
 
         // Set up extension permissions (owner is already admin from constructor)
         vm.prank(owner, owner);
@@ -106,13 +106,13 @@ contract MultiplexTest is Test {
         vm.prank(owner, owner);
         extension.setTokenOwner(address(adminControl), collector, TEST_TOKEN_ID, true);
 
-        // Register contracts with harness using proper authorization  
+        // Register contracts with harness using proper authorization
         vm.prank(artist, artist);
         harness.registerContract(address(adminControl), address(0));
-        
+
         vm.prank(artist, artist);
         harness.registerContract(address(mockERC721), address(0));
-        
+
         vm.prank(artist, artist);
         harness.registerContract(address(mockERC1155), address(0));
 
@@ -128,11 +128,11 @@ contract MultiplexTest is Test {
                         HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function _createValidInitConfig() internal view returns (IMultiplex.InitConfig memory) {
-        IMultiplex.InitConfig memory config;
+    function _createValidInitConfig() internal view returns (IWayfinder.InitConfig memory) {
+        IWayfinder.InitConfig memory config;
 
         config.metadata = TEST_METADATA;
-        config.displayMode = IMultiplex.DisplayMode.DIRECT_FILE;
+        config.displayMode = IWayfinder.DisplayMode.DIRECT_FILE;
 
         // Set up artwork
         config.artwork.artistUris = testArtistUris;
@@ -147,7 +147,7 @@ contract MultiplexTest is Test {
             | COLLECTOR_ADD_REMOVE | COLLECTOR_CHOOSE_THUMB | COLLECTOR_UPDATE_MODE;
 
         // Set up off-chain thumbnail
-        config.thumbnail.kind = IMultiplex.ThumbnailKind.OFF_CHAIN;
+        config.thumbnail.kind = IWayfinder.ThumbnailKind.OFF_CHAIN;
         config.thumbnail.offChain.uris = testThumbnailUris;
         config.thumbnail.offChain.selectedUriIndex = 0;
 
@@ -172,15 +172,17 @@ contract MultiplexTest is Test {
         // Test WalletNotAdmin error
         vm.prank(stranger, stranger);
         vm.expectRevert("Not admin");
-        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, _createValidInitConfig(), new bytes[](0), new string[](0));
+        extension.initializeTokenData(
+            address(adminControl), TEST_TOKEN_ID, _createValidInitConfig(), new bytes[](0), new string[](0)
+        );
 
         // Test NotTokenOwner error - we'll test this in the _isTokenOwner context
 
         // Test ContractNotRegistered error
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ContractNotRegistered.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ContractNotRegistered.selector));
         extension.initializeTokenData(address(stranger), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Test InvalidIndexRange error
@@ -188,7 +190,7 @@ contract MultiplexTest is Test {
         config.artwork.selectedArtistUriIndex = 999;
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidSelectedArtistUriIndex.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidSelectedArtistUriIndex.selector));
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Test ArtistPermissionRevoked error
@@ -197,13 +199,13 @@ contract MultiplexTest is Test {
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, false, true, false, false, false, false, false
         );
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
 
         // Test other errors in their respective test contexts...
     }
@@ -239,8 +241,8 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_isTokenOwner_ERC721() public {
-        // Test token ownership through the actual Multiplex contract
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        // Test token ownership through the actual Wayfinder contract
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -251,17 +253,17 @@ contract MultiplexTest is Test {
 
         // Collector should be able to add URIs (they own the token)
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
 
         // Stranger should not be able to add URIs (they don't own the token)
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
     }
 
     function test_isTokenOwner_ERC1155() public {
-        // Test token ownership through the actual Multiplex contract
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        // Test token ownership through the actual Wayfinder contract
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC1155), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -272,17 +274,17 @@ contract MultiplexTest is Test {
 
         // Collector should be able to add URIs (they own the token)
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC1155), TEST_TOKEN_ID, newUris);
+        wayfinder.addArtworkUris(address(mockERC1155), TEST_TOKEN_ID, newUris);
 
         // Stranger should not be able to add URIs (they don't own the token)
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.addArtworkUris(address(mockERC1155), TEST_TOKEN_ID, newUris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.addArtworkUris(address(mockERC1155), TEST_TOKEN_ID, newUris);
     }
 
     function test_isTokenOwner_Custom() public {
-        // Test custom ownership through the actual Multiplex contract
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        // Test custom ownership through the actual Wayfinder contract
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         // Need to make artist admin of mockCustomOwnership for initialization
         vm.prank(owner, owner);
@@ -290,10 +292,12 @@ contract MultiplexTest is Test {
 
         // Register the custom ownership contract
         vm.prank(artist, artist);
-        multiplex.registerContract(address(mockCustomOwnership), address(extension));
+        wayfinder.registerContract(address(mockCustomOwnership), address(extension));
 
         vm.prank(artist, artist);
-        extension.initializeTokenData(address(mockCustomOwnership), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
+        extension.initializeTokenData(
+            address(mockCustomOwnership), TEST_TOKEN_ID, config, new bytes[](0), new string[](0)
+        );
 
         // Test by attempting operations that require token ownership
         string[] memory newUris = new string[](1);
@@ -301,12 +305,12 @@ contract MultiplexTest is Test {
 
         // Collector should be able to add URIs (they are set as the owner in mockCustomOwnership)
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockCustomOwnership), TEST_TOKEN_ID, newUris);
+        wayfinder.addArtworkUris(address(mockCustomOwnership), TEST_TOKEN_ID, newUris);
 
         // Stranger should not be able to add URIs (they don't own the token)
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.addArtworkUris(address(mockCustomOwnership), TEST_TOKEN_ID, newUris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.addArtworkUris(address(mockCustomOwnership), TEST_TOKEN_ID, newUris);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -314,7 +318,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_initializeTokenData_OnlyByAdmin() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(stranger, stranger);
         vm.expectRevert("Not admin");
@@ -326,7 +330,7 @@ contract MultiplexTest is Test {
     }
 
     function test_initializeTokenData_FullWorkflow() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         vm.recordLogs();
@@ -338,10 +342,10 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("TokenDataInitialized(address,uint256)"));
 
         // Verify stored data
-        (string memory metadata,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        (string memory metadata,,,,,) = wayfinder.tokenData(address(adminControl), TEST_TOKEN_ID);
         assertEq(metadata, TEST_METADATA);
 
-        IMultiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        IWayfinder.Artwork memory artwork = wayfinder.getArtwork(address(adminControl), TEST_TOKEN_ID);
         assertEq(artwork.artistUris.length, 2);
         assertEq(artwork.artistUris[0], "https://artist1.com");
         assertEq(artwork.mimeType, "image/png");
@@ -353,8 +357,8 @@ contract MultiplexTest is Test {
 
     function test_resolveThumbnailUri_OnChain() public {
         // Test on-chain thumbnail resolution through public renderImage function
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = IWayfinder.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
         config.thumbnail.onChain.zipped = false;
 
@@ -363,7 +367,7 @@ contract MultiplexTest is Test {
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks, new string[](0));
 
-        string memory result = multiplex.renderImage(address(adminControl), TEST_TOKEN_ID);
+        string memory result = wayfinder.renderImage(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
         // Should start with "data:image/png;base64,"
         assertEq(bytes(result)[0], bytes1("d"));
@@ -374,12 +378,12 @@ contract MultiplexTest is Test {
 
     function test_resolveThumbnailUri_OffChain() public {
         // Test off-chain thumbnail resolution through public renderImage function
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory result = multiplex.renderImage(address(adminControl), TEST_TOKEN_ID);
+        string memory result = wayfinder.renderImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, "https://thumb1.com");
     }
 
@@ -388,7 +392,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_combinedArtworkUris() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -398,9 +402,9 @@ contract MultiplexTest is Test {
         collectorUris[0] = "https://collector1.com";
 
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
 
-        string memory result = multiplex.getCombinedArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        string memory result = wayfinder.getCombinedArtworkUris(address(mockERC721), TEST_TOKEN_ID);
         assertEq(result, '"https://artist1.com","https://artist2.com","https://collector1.com"');
     }
 
@@ -410,8 +414,8 @@ contract MultiplexTest is Test {
 
     function test_loadOnChainThumbnail_Unzipped() public {
         // Test on-chain thumbnail loading through public renderRawImage function
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = IWayfinder.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
         config.thumbnail.onChain.zipped = false;
 
@@ -420,7 +424,7 @@ contract MultiplexTest is Test {
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks, new string[](0));
 
-        bytes memory result = multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
+        bytes memory result = wayfinder.renderRawImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, abi.encodePacked(chunks[0], chunks[1]));
     }
 
@@ -432,15 +436,15 @@ contract MultiplexTest is Test {
         bytes[] memory chunks = new bytes[](1);
         chunks[0] = compressedData;
 
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = IWayfinder.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
         config.thumbnail.onChain.zipped = true;
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, chunks, new string[](0));
 
-        bytes memory result = multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
+        bytes memory result = wayfinder.renderRawImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, originalData);
     }
 
@@ -449,42 +453,42 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_updateMetadata_OnlyByAdmin() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.WalletNotAdmin.selector));
-        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.WalletNotAdmin.selector));
+        wayfinder.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
     }
 
     function test_updateMetadata_PermissionRevoked() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Revoke metadata update permission
         vm.prank(artist, artist);
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, false, true, false, false, false, false, false
         );
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
     }
 
     function test_updateMetadata_Success() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+        wayfinder.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -492,7 +496,7 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("MetadataUpdated(address,uint256)"));
 
         // Verify metadata changed
-        (string memory metadata,,,,,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
+        (string memory metadata,,,,,) = wayfinder.tokenData(address(adminControl), TEST_TOKEN_ID);
         assertEq(metadata, "new metadata");
     }
 
@@ -501,7 +505,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_updateHtmlTemplate_OnlyByAdmin() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -510,19 +514,19 @@ contract MultiplexTest is Test {
         templateParts[0] = "<html>new template</html>";
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.WalletNotAdmin.selector));
-        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.WalletNotAdmin.selector));
+        wayfinder.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
     }
 
     function test_updateHtmlTemplate_PermissionRevoked() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Revoke template update permission
         vm.prank(artist, artist);
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, false, false, false, false, false, false, true
         );
 
@@ -530,12 +534,12 @@ contract MultiplexTest is Test {
         templateParts[0] = "<html>new template</html>";
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
     }
 
     function test_updateHtmlTemplate_Success() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -545,7 +549,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
+        wayfinder.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -553,12 +557,12 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("HtmlTemplateUpdated()"));
 
         // Verify template changed
-        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        string memory template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "<html>new template</html>");
     }
 
     function test_updateHtmlTemplate_ResetToDefault() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -568,16 +572,16 @@ contract MultiplexTest is Test {
         templateParts[0] = "<html>custom template</html>";
 
         vm.prank(artist, artist);
-        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
+        wayfinder.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
 
         // Then reset to default with empty array
         string[] memory emptyParts = new string[](0);
 
         vm.prank(artist, artist);
-        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, emptyParts, false);
+        wayfinder.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, emptyParts, false);
 
         // Should return empty string indicating default template is used
-        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        string memory template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "");
     }
 
@@ -586,39 +590,39 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_updateThumbnail_OnlyByAdmin() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        IMultiplex.Thumbnail memory newThumbnail = config.thumbnail;
+        IWayfinder.Thumbnail memory newThumbnail = config.thumbnail;
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.WalletNotAdmin.selector));
-        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.WalletNotAdmin.selector));
+        wayfinder.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
     }
 
     function test_updateThumbnail_PermissionRevoked() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Revoke thumbnail update permission
         vm.prank(artist, artist);
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, true, false, false, false, false, false, false
         );
 
-        IMultiplex.Thumbnail memory newThumbnail = config.thumbnail;
+        IWayfinder.Thumbnail memory newThumbnail = config.thumbnail;
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
     }
 
     function test_updateThumbnail_Success() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -627,14 +631,14 @@ contract MultiplexTest is Test {
         string[] memory newUris = new string[](1);
         newUris[0] = "https://newthumb.com";
 
-        IMultiplex.Thumbnail memory newThumbnail;
-        newThumbnail.kind = IMultiplex.ThumbnailKind.OFF_CHAIN;
+        IWayfinder.Thumbnail memory newThumbnail;
+        newThumbnail.kind = IWayfinder.ThumbnailKind.OFF_CHAIN;
         newThumbnail.offChain.uris = newUris;
         newThumbnail.offChain.selectedUriIndex = 0;
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
+        wayfinder.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -642,25 +646,25 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("ThumbnailUpdated(address,uint256)"));
 
         // Verify thumbnail changed
-        string[] memory uris = multiplex.getThumbnailUris(address(adminControl), TEST_TOKEN_ID);
+        string[] memory uris = wayfinder.getThumbnailUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(uris.length, 1);
         assertEq(uris[0], "https://newthumb.com");
     }
 
     function test_updateThumbnail_InvalidOnChainData() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        IMultiplex.Thumbnail memory newThumbnail;
-        newThumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
+        IWayfinder.Thumbnail memory newThumbnail;
+        newThumbnail.kind = IWayfinder.ThumbnailKind.ON_CHAIN;
         newThumbnail.onChain.mimeType = "image/png";
         newThumbnail.onChain.zipped = false;
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidIndexRange.selector));
-        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0)); // Empty chunks
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidIndexRange.selector));
+        wayfinder.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0)); // Empty chunks
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -668,7 +672,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_addArtworkUris_OnlyArtistOrCollector() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -677,12 +681,12 @@ contract MultiplexTest is Test {
         newUris[0] = "https://new.com";
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
     }
 
     function test_addArtworkUris_Artist() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -692,7 +696,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+        wayfinder.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -700,13 +704,13 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("ArtworkUrisAdded(address,uint256,address,uint256)"));
 
         // Verify URI added to artist array
-        string[] memory artistUris = multiplex.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        string[] memory artistUris = wayfinder.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(artistUris.length, 3); // 2 original + 1 new
         assertEq(artistUris[2], "https://newartist.com");
     }
 
     function test_addArtworkUris_Collector() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -715,16 +719,16 @@ contract MultiplexTest is Test {
         newUris[0] = "https://newcollector.com";
 
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
 
         // Verify URI added to collector array
-        string[] memory collectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        string[] memory collectorUris = wayfinder.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
         assertEq(collectorUris.length, 1);
         assertEq(collectorUris[0], "https://newcollector.com");
     }
 
     function test_addArtworkUris_PermissionDenied() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.permissions.flags = config.permissions.flags & ~ARTIST_ADD_REMOVE;
 
         vm.prank(artist, artist);
@@ -734,8 +738,8 @@ contract MultiplexTest is Test {
         newUris[0] = "https://new.com";
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -743,7 +747,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_revokeArtistPermissions_Individual() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -751,7 +755,7 @@ contract MultiplexTest is Test {
         // Revoke metadata permission
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, false, true, false, false, false, false, false
         );
 
@@ -762,32 +766,32 @@ contract MultiplexTest is Test {
 
         // Verify permission is revoked
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
 
         // Verify other permissions still work
         vm.prank(artist, artist);
-        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IMultiplex.DisplayMode.HTML); // Should still
+        wayfinder.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IWayfinder.DisplayMode.HTML); // Should still
             // work
     }
 
     function test_revokeAllArtistPermissions() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
-        multiplex.revokeAllArtistPermissions(address(adminControl), TEST_TOKEN_ID);
+        wayfinder.revokeAllArtistPermissions(address(adminControl), TEST_TOKEN_ID);
 
         // Verify all artist permissions are revoked
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IMultiplex.DisplayMode.HTML);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IWayfinder.DisplayMode.HTML);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -795,7 +799,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_removeArtworkUris_OnlyArtistOrCollector() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -804,12 +808,12 @@ contract MultiplexTest is Test {
         indices[0] = 0;
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
     }
 
     function test_removeArtworkUris_Artist() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -819,7 +823,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+        wayfinder.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -827,12 +831,12 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("ArtworkUriRemoved(address,uint256,address,uint256)"));
 
         // Verify URI removed
-        string[] memory artistUris = multiplex.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        string[] memory artistUris = wayfinder.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(artistUris.length, 1);
     }
 
     function test_removeArtworkUris_SelectedIndexUpdate() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.artwork.selectedArtistUriIndex = 1; // Select second URI
 
         vm.prank(artist, artist);
@@ -842,15 +846,15 @@ contract MultiplexTest is Test {
         indices[0] = 1; // Remove the selected URI
 
         vm.prank(artist, artist);
-        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+        wayfinder.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
 
         // Selected index should be updated to stay within bounds
-        IMultiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        IWayfinder.Artwork memory artwork = wayfinder.getArtwork(address(adminControl), TEST_TOKEN_ID);
         assertEq(artwork.selectedArtistUriIndex, 0);
     }
 
     function test_removeArtworkUris_PermissionDenied() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.permissions.flags = config.permissions.flags & ~ARTIST_ADD_REMOVE;
 
         vm.prank(artist, artist);
@@ -860,8 +864,8 @@ contract MultiplexTest is Test {
         indices[0] = 0;
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.removeArtworkUris(address(adminControl), TEST_TOKEN_ID, indices);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -869,25 +873,25 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_setSelectedUri_OnlyArtistOrCollector() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
     }
 
     function test_setSelectedUri_Artist() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+        wayfinder.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -895,31 +899,31 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("SelectedArtworkUriChanged(address,uint256,uint256)"));
 
         // Verify selection changed
-        IMultiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        IWayfinder.Artwork memory artwork = wayfinder.getArtwork(address(adminControl), TEST_TOKEN_ID);
         assertEq(artwork.selectedArtistUriIndex, 1);
     }
 
     function test_setSelectedUri_OutOfRange() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidIndexRange.selector));
-        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 999);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidIndexRange.selector));
+        wayfinder.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 999);
     }
 
     function test_setSelectedUri_PermissionDenied() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.permissions.flags = config.permissions.flags & ~ARTIST_CHOOSE_URIS;
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -927,25 +931,25 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_setSelectedThumbnailUri_OnlyArtistOrCollector() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 1);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 1);
     }
 
     function test_setSelectedThumbnailUri_Success() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 1);
+        wayfinder.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 1);
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -953,22 +957,24 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("SelectedThumbnailUriChanged(address,uint256,uint256)"));
 
         // Verify selection changed
-        (, uint256 selectedIndex) = multiplex.getThumbnailInfo(address(adminControl), TEST_TOKEN_ID);
+        (, uint256 selectedIndex) = wayfinder.getThumbnailInfo(address(adminControl), TEST_TOKEN_ID);
         assertEq(selectedIndex, 1);
     }
 
     function test_setSelectedThumbnailUri_OnlyOffChain() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = IWayfinder.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
         config.thumbnail.onChain.zipped = false;
 
         vm.prank(artist, artist);
-        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks(), new string[](0));
+        extension.initializeTokenData(
+            address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks(), new string[](0)
+        );
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidThumbnailKind.selector));
-        multiplex.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 0);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidThumbnailKind.selector));
+        wayfinder.setSelectedThumbnailUri(address(adminControl), TEST_TOKEN_ID, 0);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -976,25 +982,25 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_setDisplayMode_OnlyArtistOrCollector() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IMultiplex.DisplayMode.HTML);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IWayfinder.DisplayMode.HTML);
     }
 
     function test_setDisplayMode_Success() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IMultiplex.DisplayMode.HTML);
+        wayfinder.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IWayfinder.DisplayMode.HTML);
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -1002,20 +1008,20 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("DisplayModeUpdated(address,uint256,uint8)"));
 
         // Verify display mode changed
-        (,,,, IMultiplex.DisplayMode displayMode,) = multiplex.tokenData(address(adminControl), TEST_TOKEN_ID);
-        assertEq(uint8(displayMode), uint8(IMultiplex.DisplayMode.HTML));
+        (,,,, IWayfinder.DisplayMode displayMode,) = wayfinder.tokenData(address(adminControl), TEST_TOKEN_ID);
+        assertEq(uint8(displayMode), uint8(IWayfinder.DisplayMode.HTML));
     }
 
     function test_setDisplayMode_PermissionDenied() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.permissions.flags = config.permissions.flags & ~ARTIST_UPDATE_MODE;
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IMultiplex.DisplayMode.HTML);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IWayfinder.DisplayMode.HTML);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1028,11 +1034,11 @@ contract MultiplexTest is Test {
 
         vm.prank(stranger, stranger);
         vm.expectRevert(); // Should revert with Ownable error
-        multiplex.setDefaultHtmlTemplate(templateParts, false);
+        wayfinder.setDefaultHtmlTemplate(templateParts, false);
 
         vm.prank(owner, owner);
         vm.recordLogs();
-        multiplex.setDefaultHtmlTemplate(templateParts, false);
+        wayfinder.setDefaultHtmlTemplate(templateParts, false);
 
         // Verify event
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -1040,7 +1046,7 @@ contract MultiplexTest is Test {
         assertEq(logs[0].topics[0], keccak256("HtmlTemplateUpdated()"));
 
         // Verify template changed
-        string memory template = multiplex.getDefaultHtmlTemplate();
+        string memory template = wayfinder.getDefaultHtmlTemplate();
         assertEq(template, "<html>new default template</html>");
     }
 
@@ -1049,71 +1055,73 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_renderImage() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory result = multiplex.renderImage(address(adminControl), TEST_TOKEN_ID);
+        string memory result = wayfinder.renderImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, "https://thumb1.com");
     }
 
     function test_renderRawImage() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = IWayfinder.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
         config.thumbnail.onChain.zipped = false;
 
         vm.prank(artist, artist);
-        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks(), new string[](0));
+        extension.initializeTokenData(
+            address(adminControl), TEST_TOKEN_ID, config, _createOnChainThumbnailChunks(), new string[](0)
+        );
 
-        bytes memory result = multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
+        bytes memory result = wayfinder.renderRawImage(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, "chunk1datachunk2data");
     }
 
     function test_renderHTML() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory result = multiplex.renderHTML(address(adminControl), TEST_TOKEN_ID);
+        string memory result = wayfinder.renderHTML(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
         // Should start with "data:text/html;base64,"
         assertEq(bytes(result)[0], bytes1("d"));
     }
 
     function test_renderRawHTML() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory result = multiplex.renderRawHTML(address(adminControl), TEST_TOKEN_ID);
+        string memory result = wayfinder.renderRawHTML(address(adminControl), TEST_TOKEN_ID);
         assertEq(result, '<html>"https://artist1.com","https://artist2.com"</html>');
     }
 
     function test_renderMetadata_DirectFileMode() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.displayMode = IMultiplex.DisplayMode.DIRECT_FILE;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.displayMode = IWayfinder.DisplayMode.DIRECT_FILE;
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory result = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        string memory result = wayfinder.renderMetadata(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
         // Should start with "data:application/json;utf8,{"
         assertEq(bytes(result)[0], bytes1("d"));
     }
 
     function test_renderMetadata_HTMLMode() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.displayMode = IMultiplex.DisplayMode.HTML;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.displayMode = IWayfinder.DisplayMode.HTML;
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory result = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        string memory result = wayfinder.renderMetadata(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(result).length > 0);
         // Should contain both image and animation_url fields
         assertEq(bytes(result)[0], bytes1("d"));
@@ -1124,19 +1132,19 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_getArtistArtworkUris() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string[] memory uris = multiplex.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        string[] memory uris = wayfinder.getArtistArtworkUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(uris.length, 2);
         assertEq(uris[0], "https://artist1.com");
         assertEq(uris[1], "https://artist2.com");
     }
 
     function test_getCollectorArtworkUris() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -1145,43 +1153,43 @@ contract MultiplexTest is Test {
         collectorUris[0] = "https://collector1.com";
 
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
 
-        string[] memory uris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        string[] memory uris = wayfinder.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
         assertEq(uris.length, 1);
         assertEq(uris[0], "https://collector1.com");
     }
 
     function test_getThumbnailUris() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string[] memory uris = multiplex.getThumbnailUris(address(adminControl), TEST_TOKEN_ID);
+        string[] memory uris = wayfinder.getThumbnailUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(uris.length, 2);
         assertEq(uris[0], "https://thumb1.com");
         assertEq(uris[1], "https://thumb2.com");
     }
 
     function test_getPermissions() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        IMultiplex.Permissions memory permissions = multiplex.getPermissions(address(adminControl), TEST_TOKEN_ID);
+        IWayfinder.Permissions memory permissions = wayfinder.getPermissions(address(adminControl), TEST_TOKEN_ID);
         assertTrue(permissions.flags & ARTIST_UPDATE_THUMB != 0);
         assertTrue(permissions.flags & ARTIST_UPDATE_META != 0);
     }
 
     function test_getArtwork() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        IMultiplex.Artwork memory artwork = multiplex.getArtwork(address(adminControl), TEST_TOKEN_ID);
+        IWayfinder.Artwork memory artwork = wayfinder.getArtwork(address(adminControl), TEST_TOKEN_ID);
         assertEq(artwork.artistUris.length, 2);
         assertEq(artwork.mimeType, "image/png");
         assertEq(artwork.fileHash, "0x1234567890abcdef");
@@ -1189,34 +1197,34 @@ contract MultiplexTest is Test {
     }
 
     function test_getThumbnailInfo() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        (IMultiplex.ThumbnailKind kind, uint256 selectedIndex) =
-            multiplex.getThumbnailInfo(address(adminControl), TEST_TOKEN_ID);
-        assertEq(uint8(kind), uint8(IMultiplex.ThumbnailKind.OFF_CHAIN));
+        (IWayfinder.ThumbnailKind kind, uint256 selectedIndex) =
+            wayfinder.getThumbnailInfo(address(adminControl), TEST_TOKEN_ID);
+        assertEq(uint8(kind), uint8(IWayfinder.ThumbnailKind.OFF_CHAIN));
         assertEq(selectedIndex, 0);
     }
 
     function test_contractRegistration() public view {
         // Test contract registration functionality
-        assertTrue(multiplex.isContractOperator(address(adminControl), address(extension)));
-        assertTrue(multiplex.isContractOperator(address(mockERC721), address(extension)));
+        assertTrue(wayfinder.isContractOperator(address(adminControl), address(extension)));
+        assertTrue(wayfinder.isContractOperator(address(mockERC721), address(extension)));
 
         // Test unregistered contract
-        assertFalse(multiplex.isContractOperator(address(stranger), address(stranger)));
+        assertFalse(wayfinder.isContractOperator(address(stranger), address(stranger)));
     }
 
     function test_getTokenHtmlTemplate() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Initially should return empty string (using default)
-        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        string memory template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "");
 
         // Set custom template
@@ -1224,19 +1232,19 @@ contract MultiplexTest is Test {
         templateParts[0] = "<html>custom</html>";
 
         vm.prank(artist, artist);
-        multiplex.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
+        wayfinder.updateHtmlTemplate(address(adminControl), TEST_TOKEN_ID, templateParts, false);
 
-        template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "<html>custom</html>");
     }
 
     function test_getCombinedArtworkUris() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory combined = multiplex.getCombinedArtworkUris(address(adminControl), TEST_TOKEN_ID);
+        string memory combined = wayfinder.getCombinedArtworkUris(address(adminControl), TEST_TOKEN_ID);
         assertEq(combined, '"https://artist1.com","https://artist2.com"');
     }
 
@@ -1269,62 +1277,62 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_InvalidMetadata() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.metadata = "";
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidMetadata.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidMetadata.selector));
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
     }
 
     function test_InvalidArtworkUris() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.artwork.artistUris = new string[](0);
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidArtworkUris.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidArtworkUris.selector));
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
     }
 
     function test_InvalidMimeType() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.artwork.mimeType = "";
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidMimeType.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidMimeType.selector));
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
     }
 
     function test_InvalidFileHash() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.artwork.fileHash = "";
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidFileHash.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidFileHash.selector));
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
     }
 
     function test_OnChainThumbnailEmpty() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
-        config.thumbnail.kind = IMultiplex.ThumbnailKind.ON_CHAIN;
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
+        config.thumbnail.kind = IWayfinder.ThumbnailKind.ON_CHAIN;
         config.thumbnail.onChain.mimeType = "image/png";
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.OnChainThumbnailEmpty.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.OnChainThumbnailEmpty.selector));
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
     }
 
     function test_InvalidSelectedThumbnailUriIndex() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.thumbnail.offChain.selectedUriIndex = 999;
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidSelectedThumbnailUriIndex.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidSelectedThumbnailUriIndex.selector));
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
     }
 
     function test_NotTokenOwnerOrAdmin() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -1333,12 +1341,12 @@ contract MultiplexTest is Test {
         uris[0] = "test";
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, uris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.addArtworkUris(address(adminControl), TEST_TOKEN_ID, uris);
     }
 
     function test_CollectorPermissionDenied() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_ADD_REMOVE;
 
         vm.prank(artist, artist);
@@ -1348,8 +1356,8 @@ contract MultiplexTest is Test {
         uris[0] = "test";
 
         vm.prank(collector, collector);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.CollectorPermissionDenied.selector));
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, uris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.CollectorPermissionDenied.selector));
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, uris);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1357,7 +1365,7 @@ contract MultiplexTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_initializeTokenData_WithHtmlTemplateChunks() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         // Create HTML template chunks
         string[] memory htmlTemplateChunks = new string[](2);
@@ -1368,12 +1376,12 @@ contract MultiplexTest is Test {
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), htmlTemplateChunks);
 
         // Verify HTML template was stored
-        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        string memory template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "<html><head><title>Test</title></head><body>{{FILE_URIS}}</body></html>");
     }
 
     function test_initializeTokenData_WithConfigHtmlTemplate() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         // Pre-store HTML template chunks in config (this would be done externally in real usage)
         // For testing purposes, we'll test the case where config.htmlTemplate.chunks is empty
@@ -1386,26 +1394,28 @@ contract MultiplexTest is Test {
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), htmlTemplateChunks);
 
         // Verify HTML template was stored
-        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        string memory template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "<html>Config Template {{FILE_URIS}}</html>");
     }
 
     function test_initializeTokenData_EmptyHtmlTemplateChunks() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         // Empty HTML template chunks should result in using default template
         string[] memory emptyHtmlTemplateChunks = new string[](0);
 
         vm.prank(artist, artist);
-        extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), emptyHtmlTemplateChunks);
+        extension.initializeTokenData(
+            address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), emptyHtmlTemplateChunks
+        );
 
         // Should return empty string indicating default template is used
-        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        string memory template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "");
     }
 
     function test_initializeTokenData_HtmlTemplateWithEmptyChunks() public {
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         // HTML template chunks with empty strings should be filtered out
         string[] memory htmlTemplateChunks = new string[](3);
@@ -1417,7 +1427,7 @@ contract MultiplexTest is Test {
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), htmlTemplateChunks);
 
         // Verify only non-empty chunks were stored
-        string memory template = multiplex.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
+        string memory template = wayfinder.getTokenHtmlTemplate(address(adminControl), TEST_TOKEN_ID);
         assertEq(template, "<html>{{FILE_URIS}}</html>");
     }
 
@@ -1427,7 +1437,7 @@ contract MultiplexTest is Test {
 
     function test_NotTokenOwner() public {
         // Test that non-token-owners cannot perform token owner operations
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -1437,13 +1447,13 @@ contract MultiplexTest is Test {
         newUris[0] = "https://test.com";
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
     }
 
     function test_isTokenOwner_WithERC721Balance() public {
         // Test ERC721 token ownership through balance-based operations
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -1454,17 +1464,17 @@ contract MultiplexTest is Test {
 
         // Collector should be able to add URIs (they own the token)
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, newUris);
 
         // Verify the URI was added
-        string[] memory collectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        string[] memory collectorUris = wayfinder.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
         assertEq(collectorUris.length, 1);
         assertEq(collectorUris[0], "https://balance-test.com");
     }
 
     function test_setSelectedUri_CollectorNotAffected() public {
         // Test that setSelectedUri only affects artist URIs, not collector URIs
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -1475,24 +1485,24 @@ contract MultiplexTest is Test {
         collectorUris[1] = "https://collector2.com";
 
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
 
         // Change selected artist URI
         vm.prank(artist, artist);
-        multiplex.setSelectedUri(address(mockERC721), TEST_TOKEN_ID, 1);
+        wayfinder.setSelectedUri(address(mockERC721), TEST_TOKEN_ID, 1);
 
         // Verify only artist URI selection changed
-        IMultiplex.Artwork memory artwork = multiplex.getArtwork(address(mockERC721), TEST_TOKEN_ID);
+        IWayfinder.Artwork memory artwork = wayfinder.getArtwork(address(mockERC721), TEST_TOKEN_ID);
         assertEq(artwork.selectedArtistUriIndex, 1);
 
         // Collector URIs should be unaffected by setSelectedUri
-        string[] memory storedCollectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        string[] memory storedCollectorUris = wayfinder.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
         assertEq(storedCollectorUris.length, 2);
     }
 
     function test_removeArtworkUris_CollectorArray() public {
         // Test removal from collector array specifically
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
@@ -1504,55 +1514,55 @@ contract MultiplexTest is Test {
         collectorUris[2] = "https://collector3.com";
 
         vm.prank(collector, collector);
-        multiplex.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
+        wayfinder.addArtworkUris(address(mockERC721), TEST_TOKEN_ID, collectorUris);
 
         // Remove middle collector URI
         uint256[] memory indices = new uint256[](1);
         indices[0] = 1;
 
         vm.prank(collector, collector);
-        multiplex.removeArtworkUris(address(mockERC721), TEST_TOKEN_ID, indices);
+        wayfinder.removeArtworkUris(address(mockERC721), TEST_TOKEN_ID, indices);
 
         // Verify removal from collector array only
-        string[] memory remainingCollectorUris = multiplex.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        string[] memory remainingCollectorUris = wayfinder.getCollectorArtworkUris(address(mockERC721), TEST_TOKEN_ID);
         assertEq(remainingCollectorUris.length, 2);
 
         // Artist URIs should be unaffected
-        string[] memory artistUris = multiplex.getArtistArtworkUris(address(mockERC721), TEST_TOKEN_ID);
+        string[] memory artistUris = wayfinder.getArtistArtworkUris(address(mockERC721), TEST_TOKEN_ID);
         assertEq(artistUris.length, 2); // Original count
     }
 
     function test_AllPermissionCombinations() public {
         // Test all individual permission revocations
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Test each permission individually
         vm.prank(artist, artist);
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, true, false, false, false, false, false, false
         );
 
-        IMultiplex.Thumbnail memory newThumbnail = config.thumbnail;
+        IWayfinder.Thumbnail memory newThumbnail = config.thumbnail;
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.updateThumbnail(address(adminControl), TEST_TOKEN_ID, newThumbnail, new bytes[](0));
 
         // Test ARTIST_CHOOSE_URIS
         vm.prank(artist, artist);
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, false, false, true, false, false, false, false
         );
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 0);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 0);
 
         // Test ARTIST_CHOOSE_THUMB
         vm.prank(artist, artist);
-        multiplex.revokeArtistPermissions(
+        wayfinder.revokeArtistPermissions(
             address(adminControl), TEST_TOKEN_ID, false, false, false, false, true, false, false
         );
 
@@ -1567,13 +1577,13 @@ contract MultiplexTest is Test {
 
         // Now test that the artist cannot use setSelectedThumbnailUri without permission
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ArtistPermissionRevoked.selector));
-        multiplex.setSelectedThumbnailUri(address(mockERC721), 2, 1);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ArtistPermissionRevoked.selector));
+        wayfinder.setSelectedThumbnailUri(address(mockERC721), 2, 1);
     }
 
     function test_CollectorPermissions() public {
         // Test collector-specific permissions
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         // Remove collector choose URIs permission
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_CHOOSE_URIS;
@@ -1582,8 +1592,8 @@ contract MultiplexTest is Test {
         extension.initializeTokenData(address(mockERC721), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         vm.prank(collector, collector);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.CollectorPermissionDenied.selector));
-        multiplex.setSelectedUri(address(mockERC721), TEST_TOKEN_ID, 1);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.CollectorPermissionDenied.selector));
+        wayfinder.setSelectedUri(address(mockERC721), TEST_TOKEN_ID, 1);
 
         // Test collector choose thumbnail permission
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_CHOOSE_THUMB;
@@ -1592,8 +1602,8 @@ contract MultiplexTest is Test {
         extension.initializeTokenData(address(mockERC721), 2, config, new bytes[](0), new string[](0));
 
         vm.prank(collector, collector);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.CollectorPermissionDenied.selector));
-        multiplex.setSelectedThumbnailUri(address(mockERC721), 2, 1);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.CollectorPermissionDenied.selector));
+        wayfinder.setSelectedThumbnailUri(address(mockERC721), 2, 1);
 
         // Test collector update mode permission
         config.permissions.flags = config.permissions.flags & ~COLLECTOR_UPDATE_MODE;
@@ -1602,13 +1612,13 @@ contract MultiplexTest is Test {
         extension.initializeTokenData(address(mockERC721), 3, config, new bytes[](0), new string[](0));
 
         vm.prank(collector, collector);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.CollectorPermissionDenied.selector));
-        multiplex.setDisplayMode(address(mockERC721), 3, IMultiplex.DisplayMode.HTML);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.CollectorPermissionDenied.selector));
+        wayfinder.setDisplayMode(address(mockERC721), 3, IWayfinder.DisplayMode.HTML);
     }
 
     function test_AllEvents() public {
         // Comprehensive event testing
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
         vm.recordLogs();
@@ -1621,7 +1631,7 @@ contract MultiplexTest is Test {
         // Test MetadataUpdated event
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
+        wayfinder.updateMetadata(address(adminControl), TEST_TOKEN_ID, "new metadata");
 
         logs = vm.getRecordedLogs();
         assertEq(logs.length, 1);
@@ -1630,7 +1640,7 @@ contract MultiplexTest is Test {
         // Test SelectedArtworkUriChanged event
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
+        wayfinder.setSelectedUri(address(adminControl), TEST_TOKEN_ID, 1);
 
         logs = vm.getRecordedLogs();
         assertEq(logs.length, 1);
@@ -1642,7 +1652,7 @@ contract MultiplexTest is Test {
 
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+        wayfinder.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
 
         logs = vm.getRecordedLogs();
         assertEq(logs.length, 1);
@@ -1651,7 +1661,7 @@ contract MultiplexTest is Test {
         // Test DisplayModeUpdated event
         vm.prank(artist, artist);
         vm.recordLogs();
-        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IMultiplex.DisplayMode.HTML);
+        wayfinder.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IWayfinder.DisplayMode.HTML);
 
         logs = vm.getRecordedLogs();
         assertEq(logs.length, 1);
@@ -1662,19 +1672,19 @@ contract MultiplexTest is Test {
         // Test remaining error cases that might not be covered
 
         // Test InvalidThumbnailKind with renderRawImage
-        IMultiplex.InitConfig memory config = _createValidInitConfig(); // Uses OFF_CHAIN by default
+        IWayfinder.InitConfig memory config = _createValidInitConfig(); // Uses OFF_CHAIN by default
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidThumbnailKind.selector));
-        multiplex.renderRawImage(address(adminControl), TEST_TOKEN_ID);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidThumbnailKind.selector));
+        wayfinder.renderRawImage(address(adminControl), TEST_TOKEN_ID);
 
         // Test InvalidIndexRange for off-chain thumbnail URIs
         config.thumbnail.offChain.uris = new string[](0);
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidIndexRange.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidIndexRange.selector));
         extension.initializeTokenData(address(adminControl), 999, config, new bytes[](0), new string[](0));
 
         // Test InvalidIndexRange for removeArtworkUris
@@ -1687,43 +1697,43 @@ contract MultiplexTest is Test {
         invalidIndices[0] = 999; // Out of bounds
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidIndexRange.selector));
-        multiplex.removeArtworkUris(address(adminControl), 998, invalidIndices);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidIndexRange.selector));
+        wayfinder.removeArtworkUris(address(adminControl), 998, invalidIndices);
 
         // Test empty indices array
         uint256[] memory emptyIndices = new uint256[](0);
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.InvalidIndexRange.selector));
-        multiplex.removeArtworkUris(address(adminControl), 998, emptyIndices);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.InvalidIndexRange.selector));
+        wayfinder.removeArtworkUris(address(adminControl), 998, emptyIndices);
     }
 
     function test_AdvancedRenderingModes() public {
         // Test rendering with animation URIs
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
         config.artwork.isAnimationUri = true;
-        config.displayMode = IMultiplex.DisplayMode.DIRECT_FILE;
+        config.displayMode = IWayfinder.DisplayMode.DIRECT_FILE;
 
         vm.prank(artist, artist);
         extension.initializeTokenData(address(adminControl), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
-        string memory metadata = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        string memory metadata = wayfinder.renderMetadata(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(metadata).length > 0);
 
         // Test HTML mode rendering
         vm.prank(artist, artist);
-        multiplex.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IMultiplex.DisplayMode.HTML);
+        wayfinder.setDisplayMode(address(adminControl), TEST_TOKEN_ID, IWayfinder.DisplayMode.HTML);
 
-        metadata = multiplex.renderMetadata(address(adminControl), TEST_TOKEN_ID);
+        metadata = wayfinder.renderMetadata(address(adminControl), TEST_TOKEN_ID);
         assertTrue(bytes(metadata).length > 0);
     }
 
     function test_EdgeCasePermutations() public {
         // Test with unregistered contract - should fail
-        IMultiplex.InitConfig memory config = _createValidInitConfig();
+        IWayfinder.InitConfig memory config = _createValidInitConfig();
 
         vm.prank(artist, artist);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.ContractNotRegistered.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.ContractNotRegistered.selector));
         extension.initializeTokenData(address(stranger), TEST_TOKEN_ID, config, new bytes[](0), new string[](0));
 
         // Test ownership check with different contract
@@ -1735,7 +1745,7 @@ contract MultiplexTest is Test {
         newUris[0] = "https://test.com";
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(abi.encodeWithSelector(IMultiplex.NotTokenOwnerOrAdmin.selector));
-        multiplex.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
+        vm.expectRevert(abi.encodeWithSelector(IWayfinder.NotTokenOwnerOrAdmin.selector));
+        wayfinder.addArtworkUris(address(adminControl), TEST_TOKEN_ID, newUris);
     }
 }

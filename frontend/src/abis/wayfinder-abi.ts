@@ -1,5 +1,5 @@
-// Complete Multiplex ABI with as const for proper type inference
-export const multiplexAbi = [
+// Complete Wayfinder ABI with as const for proper type inference
+export const wayfinderAbi = [
 	{
 		type: "constructor",
 		inputs: [
@@ -63,7 +63,7 @@ export const multiplexAbi = [
 			{
 				name: "",
 				type: "tuple",
-				internalType: "struct IMultiplex.Artwork",
+				internalType: "struct IWayfinder.Artwork",
 				components: [
 					{ name: "artistUris", type: "string[]", internalType: "string[]" },
 					{ name: "collectorUris", type: "string[]", internalType: "string[]" },
@@ -118,7 +118,7 @@ export const multiplexAbi = [
 			{
 				name: "",
 				type: "tuple",
-				internalType: "struct IMultiplex.Permissions",
+				internalType: "struct IWayfinder.Permissions",
 				components: [{ name: "flags", type: "uint16", internalType: "uint16" }],
 			},
 		],
@@ -135,7 +135,7 @@ export const multiplexAbi = [
 			{
 				name: "thumbnailKind",
 				type: "uint8",
-				internalType: "enum IMultiplex.ThumbnailKind",
+				internalType: "enum IWayfinder.ThumbnailKind",
 			},
 			{ name: "selectedIndex", type: "uint256", internalType: "uint256" },
 		],
@@ -170,13 +170,13 @@ export const multiplexAbi = [
 			{
 				name: "config",
 				type: "tuple",
-				internalType: "struct IMultiplex.InitConfig",
+				internalType: "struct IWayfinder.InitConfig",
 				components: [
 					{ name: "metadata", type: "string", internalType: "string" },
 					{
 						name: "artwork",
 						type: "tuple",
-						internalType: "struct IMultiplex.Artwork",
+						internalType: "struct IWayfinder.Artwork",
 						components: [
 							{
 								name: "artistUris",
@@ -201,17 +201,17 @@ export const multiplexAbi = [
 					{
 						name: "thumbnail",
 						type: "tuple",
-						internalType: "struct IMultiplex.Thumbnail",
+						internalType: "struct IWayfinder.Thumbnail",
 						components: [
 							{
 								name: "kind",
 								type: "uint8",
-								internalType: "enum IMultiplex.ThumbnailKind",
+								internalType: "enum IWayfinder.ThumbnailKind",
 							},
 							{
 								name: "onChain",
 								type: "tuple",
-								internalType: "struct IMultiplex.OnChainThumbnail",
+								internalType: "struct IWayfinder.OnChainThumbnail",
 								components: [
 									{ name: "mimeType", type: "string", internalType: "string" },
 									{
@@ -225,7 +225,7 @@ export const multiplexAbi = [
 							{
 								name: "offChain",
 								type: "tuple",
-								internalType: "struct IMultiplex.OffChainThumbnail",
+								internalType: "struct IWayfinder.OffChainThumbnail",
 								components: [
 									{ name: "uris", type: "string[]", internalType: "string[]" },
 									{
@@ -240,19 +240,33 @@ export const multiplexAbi = [
 					{
 						name: "displayMode",
 						type: "uint8",
-						internalType: "enum IMultiplex.DisplayMode",
+						internalType: "enum IWayfinder.DisplayMode",
 					},
 					{
 						name: "permissions",
 						type: "tuple",
-						internalType: "struct IMultiplex.Permissions",
+						internalType: "struct IWayfinder.Permissions",
 						components: [
 							{ name: "flags", type: "uint16", internalType: "uint16" },
+						],
+					},
+					{
+						name: "htmlTemplate",
+						type: "tuple",
+						internalType: "struct IWayfinder.HtmlTemplate",
+						components: [
+							{ name: "chunks", type: "address[]", internalType: "address[]" },
+							{ name: "zipped", type: "bool", internalType: "bool" },
 						],
 					},
 				],
 			},
 			{ name: "thumbnailChunks", type: "bytes[]", internalType: "bytes[]" },
+			{
+				name: "htmlTemplateChunks",
+				type: "string[]",
+				internalType: "string[]",
+			},
 		],
 		outputs: [],
 		stateMutability: "nonpayable",
@@ -485,7 +499,7 @@ export const multiplexAbi = [
 			{
 				name: "displayMode",
 				type: "uint8",
-				internalType: "enum IMultiplex.DisplayMode",
+				internalType: "enum IWayfinder.DisplayMode",
 			},
 		],
 		outputs: [],
@@ -525,17 +539,17 @@ export const multiplexAbi = [
 			{
 				name: "thumbnail",
 				type: "tuple",
-				internalType: "struct IMultiplex.Thumbnail",
+				internalType: "struct IWayfinder.Thumbnail",
 				components: [
 					{
 						name: "kind",
 						type: "uint8",
-						internalType: "enum IMultiplex.ThumbnailKind",
+						internalType: "enum IWayfinder.ThumbnailKind",
 					},
 					{
 						name: "onChain",
 						type: "tuple",
-						internalType: "struct IMultiplex.OnChainThumbnail",
+						internalType: "struct IWayfinder.OnChainThumbnail",
 						components: [
 							{ name: "mimeType", type: "string", internalType: "string" },
 							{ name: "chunks", type: "address[]", internalType: "address[]" },
@@ -545,7 +559,7 @@ export const multiplexAbi = [
 					{
 						name: "offChain",
 						type: "tuple",
-						internalType: "struct IMultiplex.OffChainThumbnail",
+						internalType: "struct IWayfinder.OffChainThumbnail",
 						components: [
 							{ name: "uris", type: "string[]", internalType: "string[]" },
 							{
@@ -560,7 +574,7 @@ export const multiplexAbi = [
 			{
 				name: "artwork",
 				type: "tuple",
-				internalType: "struct IMultiplex.Artwork",
+				internalType: "struct IWayfinder.Artwork",
 				components: [
 					{ name: "artistUris", type: "string[]", internalType: "string[]" },
 					{ name: "collectorUris", type: "string[]", internalType: "string[]" },
@@ -577,18 +591,18 @@ export const multiplexAbi = [
 			{
 				name: "permissions",
 				type: "tuple",
-				internalType: "struct IMultiplex.Permissions",
+				internalType: "struct IWayfinder.Permissions",
 				components: [{ name: "flags", type: "uint16", internalType: "uint16" }],
 			},
 			{
 				name: "displayMode",
 				type: "uint8",
-				internalType: "enum IMultiplex.DisplayMode",
+				internalType: "enum IWayfinder.DisplayMode",
 			},
 			{
 				name: "htmlTemplate",
 				type: "tuple",
-				internalType: "struct IMultiplex.HtmlTemplate",
+				internalType: "struct IWayfinder.HtmlTemplate",
 				components: [
 					{ name: "chunks", type: "address[]", internalType: "address[]" },
 					{ name: "zipped", type: "bool", internalType: "bool" },
@@ -636,17 +650,17 @@ export const multiplexAbi = [
 			{
 				name: "thumbnail",
 				type: "tuple",
-				internalType: "struct IMultiplex.Thumbnail",
+				internalType: "struct IWayfinder.Thumbnail",
 				components: [
 					{
 						name: "kind",
 						type: "uint8",
-						internalType: "enum IMultiplex.ThumbnailKind",
+						internalType: "enum IWayfinder.ThumbnailKind",
 					},
 					{
 						name: "onChain",
 						type: "tuple",
-						internalType: "struct IMultiplex.OnChainThumbnail",
+						internalType: "struct IWayfinder.OnChainThumbnail",
 						components: [
 							{ name: "mimeType", type: "string", internalType: "string" },
 							{ name: "chunks", type: "address[]", internalType: "address[]" },
@@ -656,7 +670,7 @@ export const multiplexAbi = [
 					{
 						name: "offChain",
 						type: "tuple",
-						internalType: "struct IMultiplex.OffChainThumbnail",
+						internalType: "struct IWayfinder.OffChainThumbnail",
 						components: [
 							{ name: "uris", type: "string[]", internalType: "string[]" },
 							{
@@ -805,7 +819,7 @@ export const multiplexAbi = [
 				name: "displayMode",
 				type: "uint8",
 				indexed: false,
-				internalType: "enum IMultiplex.DisplayMode",
+				internalType: "enum IWayfinder.DisplayMode",
 			},
 		],
 		anonymous: false,

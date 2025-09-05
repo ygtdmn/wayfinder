@@ -2,10 +2,10 @@
 pragma solidity >=0.8.30 <0.9.0;
 
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-import { IMultiplexCreator } from "src/interfaces/IMultiplexCreator.sol";
+import { IWayfinderCreator } from "src/interfaces/IWayfinderCreator.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-contract MockERC1155 is ERC1155, IMultiplexCreator {
+contract MockERC1155 is ERC1155, IWayfinderCreator {
     mapping(address => bool) private _admins;
     address private _owner;
 
@@ -35,7 +35,12 @@ contract MockERC1155 is ERC1155, IMultiplexCreator {
         address creatorContract,
         address account,
         uint256 tokenId
-    ) external view override returns (bool) {
+    )
+        external
+        view
+        override
+        returns (bool)
+    {
         if (creatorContract == address(this)) {
             return balanceOf(account, tokenId) > 0;
         }
@@ -43,6 +48,6 @@ contract MockERC1155 is ERC1155, IMultiplexCreator {
     }
 
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC1155, IERC165) returns (bool) {
-        return interfaceId == type(IMultiplexCreator).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IWayfinderCreator).interfaceId || super.supportsInterface(interfaceId);
     }
 }

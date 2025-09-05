@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.30 <0.9.0;
 
-import { Multiplex } from "src/Multiplex.sol";
+import { Wayfinder } from "src/Wayfinder.sol";
 
-contract MultiplexHarness is Multiplex {
-    constructor() Multiplex("<html>{{FILE_URIS}}</html>", false) { }
+contract WayfinderHarness is Wayfinder {
+    constructor() Wayfinder("<html>{{FILE_URIS}}</html>", false) { }
 
     function isContractAdminPublic(address contractAddress) external view returns (bool) {
         return _isContractAdmin(contractAddress, msg.sender);

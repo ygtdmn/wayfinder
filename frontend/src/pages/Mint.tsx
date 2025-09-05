@@ -3,11 +3,11 @@ import {
 	useWriteContract,
 	useWaitForTransactionReceipt,
 	useSimulateContract,
+	useAccount,
 } from "wagmi";
-import { useSearchParams, useNavigate, Link } from "react-router-dom";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import type { Address } from "viem";
-import { multiplexExtensionAbi } from "../abis/multiplex-manifold-extension-abi";
+import { wayfinderExtensionAbi } from "../abis/wayfinder-manifold-extension-abi";
 import fastlz from "../lib/fastlz";
 import { sha256 } from "js-sha256";
 import {
@@ -21,10 +21,14 @@ import {
 } from "../utils/fileValidation";
 import FilePreview from "../components/FilePreview";
 import type { Attribute } from "../types/metadata";
+import Header from "../components/Header";
+import { useTheme } from "../hooks/useTheme";
+import Footer from "../components/Footer";
 
 export default function Mint() {
 	const [sp] = useSearchParams();
 	const navigate = useNavigate();
+	const { address: connectedAddress } = useAccount();
 	const creator = (sp.get("creator") || "") as Address;
 	const type = sp.get("type") || "Unknown";
 
@@ -79,6 +83,9 @@ export default function Mint() {
 	// Recipients
 	const [recipients, setRecipients] = useState<string>("");
 	const [quantities, setQuantities] = useState<string>("");
+
+	// Theme
+	const { isDarkMode, toggleTheme } = useTheme();
 
 	// Transaction state
 	const {
@@ -135,6 +142,20 @@ export default function Mint() {
 	}, []);
 
 	const prepareThumbnail = useCallback(async (file: File) => {
+		const fileSizeKB = file.size / 1024;
+		const MAX_SIZE_KB = 120;
+		const WARNING_SIZE_KB = 20;
+
+		// Check file size limits for on-chain storage
+		if (fileSizeKB > MAX_SIZE_KB) {
+			alert(
+				`File too large for on-chain storage. Maximum size is ${MAX_SIZE_KB}KB, your file is ${fileSizeKB.toFixed(
+					1
+				)}KB. Please compress or resize your thumbnail.`
+			);
+			return;
+		}
+
 		setThumbnailFile(file);
 		setThumbMime(file.type);
 
@@ -148,7 +169,7 @@ export default function Mint() {
 		const compressed = fastlz.compress(new Uint8Array(buffer));
 		setThumbLength(buffer.byteLength);
 
-		const CHUNK_SIZE = 10 * 1024; // 10KB per chunk
+		const CHUNK_SIZE = 20 * 1024; // 10KB per chunk
 		const chunks: string[] = [];
 		for (let i = 0; i < compressed.length; i += CHUNK_SIZE) {
 			const chunk = compressed.slice(i, i + CHUNK_SIZE);
@@ -159,6 +180,15 @@ export default function Mint() {
 			);
 		}
 		setThumbChunks(chunks);
+
+		// Show cost warning for larger files
+		if (fileSizeKB > WARNING_SIZE_KB) {
+			console.warn(
+				`⚠️  Large thumbnail (${fileSizeKB.toFixed(
+					1
+				)}KB) - this may result in high gas costs for on-chain storage.`
+			);
+		}
 	}, []);
 
 	const prepareHtmlTemplate = useCallback(async (file: File) => {
@@ -355,8 +385,8 @@ export default function Mint() {
 	// Simulate contract calls for better error handling
 	const erc1155SimulateArgs = useMemo(
 		() => ({
-			abi: multiplexExtensionAbi,
-			address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+			abi: wayfinderExtensionAbi,
+			address: import.meta.env.VITE_WAYFINDER_EXTENSION_ADDRESS as Address,
 			functionName: "mintERC1155" as const,
 			args: [
 				creator,
@@ -364,19 +394,29 @@ export default function Mint() {
 				quantitiesArr,
 				initConfig,
 				thumbChunks as readonly `0x${string}`[],
+				htmlTemplateChunks,
 			] as const,
 			value: 0n,
 			query: {
 				enabled: type === "ERC1155" && !!name && recipientsArr.length > 0,
 			},
 		}),
-		[creator, recipientsArr, quantitiesArr, initConfig, thumbChunks, type, name]
+		[
+			creator,
+			recipientsArr,
+			quantitiesArr,
+			initConfig,
+			thumbChunks,
+			htmlTemplateChunks,
+			type,
+			name,
+		]
 	);
 
 	const erc721SimulateArgs = useMemo(
 		() => ({
-			abi: multiplexExtensionAbi,
-			address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+			abi: wayfinderExtensionAbi,
+			address: import.meta.env.VITE_WAYFINDER_EXTENSION_ADDRESS as Address,
 			functionName: "mintERC721" as const,
 			args: [
 				creator,
@@ -384,13 +424,22 @@ export default function Mint() {
 					("0x0000000000000000000000000000000000000000" as Address),
 				initConfig,
 				thumbChunks as readonly `0x${string}`[],
+				htmlTemplateChunks,
 			] as const,
 			value: 0n,
 			query: {
 				enabled: type === "ERC721" && !!name && recipientsArr.length > 0,
 			},
 		}),
-		[creator, recipientsArr, initConfig, thumbChunks, type, name]
+		[
+			creator,
+			recipientsArr,
+			initConfig,
+			thumbChunks,
+			htmlTemplateChunks,
+			type,
+			name,
+		]
 	);
 
 	const { error: simulateError1155 } = useSimulateContract(erc1155SimulateArgs);
@@ -435,6 +484,7 @@ export default function Mint() {
 
 		// Validation checks
 		if (!name) console.warn("❌ Missing name");
+		if (!artistArtworkUris.trim()) console.warn("❌ Missing artwork URIs");
 		if (recipientsArr.length === 0) console.warn("❌ No recipients");
 		if (!artworkFile) console.warn("⚠️  No artwork file");
 		if (!imageHash) console.warn("⚠️  No image hash");
@@ -459,8 +509,8 @@ export default function Mint() {
 				);
 				console.log("Thumb chunks:", thumbChunks);
 				writeContract({
-					abi: multiplexExtensionAbi,
-					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+					abi: wayfinderExtensionAbi,
+					address: import.meta.env.VITE_WAYFINDER_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC1155",
 					args: [
 						creator,
@@ -468,6 +518,7 @@ export default function Mint() {
 						quantitiesArr,
 						initConfig,
 						thumbChunks as readonly `0x${string}`[],
+						htmlTemplateChunks,
 					],
 					value: 0n,
 				});
@@ -486,14 +537,15 @@ export default function Mint() {
 				);
 				console.log("Thumb chunks:", thumbChunks);
 				writeContract({
-					abi: multiplexExtensionAbi,
-					address: import.meta.env.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address,
+					abi: wayfinderExtensionAbi,
+					address: import.meta.env.VITE_WAYFINDER_EXTENSION_ADDRESS as Address,
 					functionName: "mintERC721",
 					args: [
 						creator,
 						recipientsArr[0], // ERC721 takes single recipient
 						initConfig,
 						thumbChunks as readonly `0x${string}`[],
+						htmlTemplateChunks,
 					],
 					value: 0n,
 				});
@@ -508,7 +560,9 @@ export default function Mint() {
 	if (!creator) {
 		return (
 			<div className="text-center py-12">
-				<p className="text-zinc-400">Please select a collection first.</p>
+				<p className={isDarkMode ? "text-zinc-400" : "text-zinc-600"}>
+					Please select a collection first.
+				</p>
 				<button
 					onClick={() => navigate("/collections")}
 					className="btn-primary mt-4"
@@ -537,10 +591,14 @@ export default function Mint() {
 						/>
 					</svg>
 				</div>
-				<h2 className="text-2xl font-display font-bold text-zinc-100 mb-2">
+				<h2
+					className={`text-2xl font-display font-bold ${
+						isDarkMode ? "text-zinc-100" : "text-zinc-900"
+					} mb-2`}
+				>
 					Artwork Created!
 				</h2>
-				<p className="text-zinc-400 mb-8">
+				<p className={`${isDarkMode ? "text-zinc-400" : "text-zinc-600"} mb-8`}>
 					Your artwork has been successfully minted.
 				</p>
 				<div className="flex gap-3 justify-center">
@@ -562,171 +620,99 @@ export default function Mint() {
 	}
 
 	return (
-		<div className="min-h-screen">
-			<div className="flex justify-between items-center p-8 border-b border-zinc-800">
-				<Link to="/" className="text-2xl font-black text-zinc-100">
-					multiplex
-				</Link>
-				<ConnectButton />
-			</div>
-			<form
-				onSubmit={onSubmit}
-				className="max-w-4xl mx-auto px-8 py-8 space-y-8 animate-fade-in"
-			>
-				<div>
-					<h2 className="text-2xl font-display font-bold text-zinc-100">
-						Create New Artwork
-					</h2>
-					<p className="text-zinc-400 mt-1">
-						Fill in the details for your{" "}
-						{type === "ERC1155" ? "multiple edition" : "single edition"} NFT
-					</p>
-				</div>
+		<div
+			className={`scroll-smooth min-h-screen flex flex-col ${
+				isDarkMode ? "bg-zinc-950 text-zinc-100" : "bg-zinc-50 text-zinc-900"
+			}`}
+		>
+			<Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
 
-				{/* Step 1: Artwork */}
-				<div className="card">
-					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						Upload Your Artwork
-					</h3>
-					<div
-						className={`upload-zone ${artworkFile ? "active" : ""}`}
-						onDragOver={(e) => {
-							e.preventDefault();
-							e.currentTarget.classList.add("active");
-						}}
-						onDragLeave={(e) => {
-							e.currentTarget.classList.remove("active");
-						}}
-						onDrop={(e) => {
-							e.preventDefault();
-							e.currentTarget.classList.remove("active");
-							const file = e.dataTransfer.files?.[0];
-							if (file && isFileSupported(file)) {
-								handleArtworkFile(file);
-							} else if (file) {
-								alert(getUnsupportedFileMessage(file));
-							}
-						}}
-						onClick={() => {
-							const input = document.createElement("input");
-							input.type = "file";
-							input.accept = getAcceptAttribute();
-							input.onchange = () => {
-								const file = input.files?.[0];
+			{/* Main Content */}
+			<div className="flex-grow">
+				<form
+					onSubmit={onSubmit}
+					className="px-4 md:px-8 py-8 max-w-6xl mx-auto space-y-6"
+				>
+					<div>
+						<h2
+							className={`text-lg md:text-xl font-bold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							}`}
+						>
+							Create New Artwork
+						</h2>
+						<p
+							className={`text-sm md:text-base ${
+								isDarkMode ? "text-zinc-300" : "text-zinc-600"
+							} mt-1`}
+						>
+							Fill in the details for your{" "}
+							{type === "ERC1155" ? "multiple edition" : "single edition"} NFT
+						</p>
+					</div>
+
+					{/* Step 1: Artwork */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							Upload Your Artwork
+						</h3>
+						<div
+							className={`upload-zone ${artworkFile ? "active" : ""}`}
+							onDragOver={(e) => {
+								e.preventDefault();
+								e.currentTarget.classList.add("active");
+							}}
+							onDragLeave={(e) => {
+								e.currentTarget.classList.remove("active");
+							}}
+							onDrop={(e) => {
+								e.preventDefault();
+								e.currentTarget.classList.remove("active");
+								const file = e.dataTransfer.files?.[0];
 								if (file && isFileSupported(file)) {
 									handleArtworkFile(file);
 								} else if (file) {
 									alert(getUnsupportedFileMessage(file));
 								}
-							};
-							input.click();
-						}}
-					>
-						{artworkPreview ? (
-							<div className="space-y-4">
-								<FilePreview
-									file={artworkFile}
-									previewUrl={artworkPreview}
-									maxHeight="max-h-64"
-								/>
-								<p className="font-mono text-xs text-zinc-400 text-left">
-									Hash: {imageHash}
-								</p>
-							</div>
-						) : (
-							<>
-								<svg
-									className="w-12 h-12 text-gray-400 mx-auto mb-4"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-								>
-									<path
-										strokeLinecap="round"
-										strokeLinejoin="round"
-										strokeWidth={2}
-										d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+							}}
+							onClick={() => {
+								const input = document.createElement("input");
+								input.type = "file";
+								input.accept = getAcceptAttribute();
+								input.onchange = () => {
+									const file = input.files?.[0];
+									if (file && isFileSupported(file)) {
+										handleArtworkFile(file);
+									} else if (file) {
+										alert(getUnsupportedFileMessage(file));
+									}
+								};
+								input.click();
+							}}
+						>
+							{artworkPreview ? (
+								<div className="space-y-4">
+									<FilePreview
+										file={artworkFile}
+										previewUrl={artworkPreview}
+										maxHeight="max-h-64"
 									/>
-								</svg>
-								<p className="text-zinc-300">
-									Drop your artwork here or click to browse
-								</p>
-								<p className="text-sm text-zinc-400 mt-2">
-									Image, video, audio, 3D model, HTML, JSON
-								</p>
-							</>
-						)}
-					</div>
-				</div>
-
-				{/* Step 2: Details */}
-				<div className="card">
-					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						Artwork Details
-					</h3>
-					<div className="space-y-4">
-						<div>
-							<label className="label">Title *</label>
-							<input
-								className="input-field"
-								placeholder="My Amazing Artwork"
-								value={name}
-								onChange={(e) => setName(e.target.value)}
-								required
-							/>
-						</div>
-						<div>
-							<label className="label">Description</label>
-							<textarea
-								rows={4}
-								className="textarea-field"
-								placeholder="Tell the story behind your artwork..."
-								value={description}
-								onChange={(e) => setDescription(e.target.value)}
-							/>
-						</div>
-						<div>
-							<label className="label">External Link</label>
-							<input
-								className="input-field"
-								placeholder="https://yourwebsite.com"
-								value={externalUrl}
-								onChange={(e) => setExternalUrl(e.target.value)}
-							/>
-							<p className="help-text">Link to your website or social media</p>
-						</div>
-					</div>
-
-					<div className="mt-6">
-						<label className="label">Properties</label>
-						<p className="help-text mb-3">
-							Add attributes that describe your artwork
-						</p>
-						{attributes.map((attr, index) => (
-							<div key={index} className="flex gap-2 mb-2">
-								<input
-									className="input-field flex-1"
-									placeholder="Property"
-									value={attr.trait_type}
-									onChange={(e) =>
-										handleAttributeChange(index, "trait_type", e.target.value)
-									}
-								/>
-								<input
-									className="input-field flex-1"
-									placeholder="Value"
-									value={attr.value}
-									onChange={(e) =>
-										handleAttributeChange(index, "value", e.target.value)
-									}
-								/>
-								<button
-									type="button"
-									onClick={() => handleRemoveAttribute(index)}
-									className="btn-ghost"
-								>
+									<p
+										className={`font-mono text-xs ${
+											isDarkMode ? "text-zinc-400" : "text-zinc-600"
+										} text-left`}
+									>
+										Hash: {imageHash}
+									</p>
+								</div>
+							) : (
+								<>
 									<svg
-										className="w-5 h-5"
+										className="w-12 h-12 text-gray-400 mx-auto mb-4"
 										fill="none"
 										stroke="currentColor"
 										viewBox="0 0 24 24"
@@ -735,310 +721,102 @@ export default function Mint() {
 											strokeLinecap="round"
 											strokeLinejoin="round"
 											strokeWidth={2}
-											d="M6 18L18 6M6 6l12 12"
+											d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
 										/>
 									</svg>
-								</button>
-							</div>
-						))}
-						<button
-							type="button"
-							onClick={handleAddAttribute}
-							className="btn-secondary text-sm"
-						>
-							+ Add Property
-						</button>
+									<p
+										className={`${
+											isDarkMode ? "text-zinc-300" : "text-zinc-700"
+										}`}
+									>
+										Drop your artwork here or click to browse
+									</p>
+									<p
+										className={`text-sm ${
+											isDarkMode ? "text-zinc-400" : "text-zinc-600"
+										} mt-2`}
+									>
+										Image, video, audio, 3D model, HTML, JSON
+									</p>
+								</>
+							)}
+						</div>
 					</div>
-				</div>
 
-				{/* Step 3: Artwork Options */}
-				<div className="card">
-					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						Artwork Options
-					</h3>
-					<div className="space-y-4">
-						<div>
-							<label className="label">Display Mode</label>
-							<select
-								className="input-field"
-								value={displayMode}
-								onChange={(e) => setDisplayMode(Number(e.target.value))}
-							>
-								<option value={0}>Image</option>
-								<option value={1}>Interactive HTML</option>
-							</select>
-							<p className="help-text">
-								How the artwork will be displayed by default
-							</p>
-						</div>
-
-						<div>
-							<label className="label">Artwork URIs</label>
-							<textarea
-								rows={3}
-								className="textarea-field font-mono text-sm"
-								placeholder="ipfs://artwork1&#10;ipfs://artwork2"
-								value={artistArtworkUris}
-								onChange={(e) => setArtistArtworkUris(e.target.value)}
-							/>
-							<p className="help-text">
-								One URI per line. Collectors can select from these artworks if
-								allowed.
-							</p>
-
-							{/* File Upload Suggestions */}
-							<div className="mt-3 p-3 bg-zinc-800/30 border border-zinc-700/50 rounded-lg">
-								<h5 className="text-sm font-medium text-zinc-300 mb-2">
-									Suggested upload options, the more the better:
-								</h5>
-								<div className="grid grid-cols-2 gap-1 text-xs">
-									<a
-										href="https://ardrive.net"
-										target="_blank"
-										rel="noopener noreferrer"
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
-									>
-										<span>ArDrive (Arweave)</span>
-										<span className="text-orange-400 font-medium relative group">
-											PAID
-											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-												Pay per upload • Permanent decentralized storage
-											</div>
-										</span>
-									</a>
-									<a
-										href="https://web3.storage"
-										target="_blank"
-										rel="noopener noreferrer"
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
-									>
-										<span>Web3.Storage (IPFS)</span>
-										<span className="text-blue-400 font-medium relative group">
-											FREE+
-											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-												Free with usage limits
-											</div>
-										</span>
-									</a>
-									<a
-										href="https://archive.org/create/"
-										target="_blank"
-										rel="noopener noreferrer"
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
-									>
-										<span>Internet Archive</span>
-										<span className="text-green-400 font-medium relative group">
-											FREE
-											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-												No cost • Rate limiting for abuse prevention
-											</div>
-										</span>
-									</a>
-									<a
-										href="https://github.com"
-										target="_blank"
-										rel="noopener noreferrer"
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
-									>
-										<span>GitHub (raw links)</span>
-										<span className="text-blue-400 font-medium relative group">
-											FREE+
-											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-												Free with usage limits
-											</div>
-										</span>
-									</a>
-									<a
-										href="https://developers.cloudflare.com/r2/"
-										target="_blank"
-										rel="noopener noreferrer"
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
-									>
-										<span>Cloudflare R2</span>
-										<span className="text-blue-400 font-medium relative group">
-											FREE+
-											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-												Free with usage limits
-											</div>
-										</span>
-									</a>
-									<a
-										href="https://aws.amazon.com/s3/"
-										target="_blank"
-										rel="noopener noreferrer"
-										className="px-2 py-1 hover:bg-zinc-700/50 rounded text-zinc-400 hover:text-zinc-300 transition-colors flex items-center justify-between"
-									>
-										<span>AWS S3</span>
-										<span className="text-blue-400 font-medium relative group">
-											FREE+
-											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-black text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-												Free with usage limits
-											</div>
-										</span>
-									</a>
-								</div>
-							</div>
-						</div>
-
-						<div>
-							<label className="label">Thumbnail Options</label>
-							<div className="space-y-3">
-								<label className="flex items-center gap-3">
-									<input
-										type="checkbox"
-										checked={!useOffchainThumbnail}
-										onChange={(e) => setUseOffchainThumbnail(!e.target.checked)}
-										className="checkbox"
-									/>
-									<span className="text-zinc-300">
-										Include on-chain thumbnail in metadata
-									</span>
-								</label>
-							</div>
-						</div>
-
-						{!useOffchainThumbnail && (
+					{/* Step 2: Details */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							Artwork Details
+						</h3>
+						<div className="space-y-4">
 							<div>
-								<label className="label">On-chain Thumbnail</label>
-								<div
-									className={`upload-zone ${thumbnailFile ? "active" : ""}`}
-									onDragOver={(e) => {
-										e.preventDefault();
-										e.currentTarget.classList.add("active");
-									}}
-									onDragLeave={(e) => {
-										e.currentTarget.classList.remove("active");
-									}}
-									onDrop={(e) => {
-										e.preventDefault();
-										e.currentTarget.classList.remove("active");
-										const file = e.dataTransfer.files?.[0];
-										if (file && isThumbnailSupported(file)) {
-											prepareThumbnail(file);
-										} else if (file) {
-											alert(getUnsupportedThumbnailMessage(file));
-										}
-									}}
-									onClick={() => {
-										const input = document.createElement("input");
-										input.type = "file";
-										input.accept = getThumbnailAcceptAttribute();
-										input.onchange = () => {
-											const file = input.files?.[0];
-											if (file && isThumbnailSupported(file)) {
-												prepareThumbnail(file);
-											} else if (file) {
-												alert(getUnsupportedThumbnailMessage(file));
-											}
-										};
-										input.click();
-									}}
-								>
-									{thumbnailPreview ? (
-										<div className="space-y-2">
-											<FilePreview
-												file={thumbnailFile}
-												previewUrl={thumbnailPreview}
-												maxHeight="max-h-32"
-											/>
-											<p className="text-sm text-zinc-400 text-center">
-												{thumbChunks.length} chunks • {thumbLength} bytes
-												original
-											</p>
-										</div>
-									) : (
-										<p className="text-zinc-400 text-sm">
-											Drop a thumbnail file or click to browse
-										</p>
-									)}
-								</div>
+								<label className="label">Title *</label>
+								<input
+									className="input-field"
+									placeholder="My Amazing Artwork"
+									value={name}
+									onChange={(e) => setName(e.target.value)}
+									required
+								/>
 							</div>
-						)}
-
-						{useOffchainThumbnail && (
 							<div>
-								<label className="label">Thumbnail URIs</label>
+								<label className="label">Description</label>
 								<textarea
-									rows={3}
-									className="textarea-field font-mono text-sm"
-									placeholder="ipfs://thumb1&#10;ipfs://thumb2"
-									value={artistThumbnailUris}
-									onChange={(e) => setArtistThumbnailUris(e.target.value)}
+									rows={4}
+									className="textarea-field"
+									placeholder="Tell the story behind your artwork..."
+									value={description}
+									onChange={(e) => setDescription(e.target.value)}
+								/>
+							</div>
+							<div>
+								<label className="label">External Link</label>
+								<input
+									className="input-field"
+									placeholder="https://yourwebsite.com"
+									value={externalUrl}
+									onChange={(e) => setExternalUrl(e.target.value)}
 								/>
 								<p className="help-text">
-									One URI per line. Collectors can select from these thumbnails
-									if allowed.
+									Link to your website or social media
 								</p>
 							</div>
-						)}
+						</div>
 
-						<div>
-							<label className="label">Custom HTML Template (optional)</label>
-							<div
-								className={`upload-zone ${htmlTemplateFile ? "active" : ""}`}
-								onDragOver={(e) => {
-									e.preventDefault();
-									e.currentTarget.classList.add("active");
-								}}
-								onDragLeave={(e) => {
-									e.currentTarget.classList.remove("active");
-								}}
-								onDrop={(e) => {
-									e.preventDefault();
-									e.currentTarget.classList.remove("active");
-									const file = e.dataTransfer.files?.[0];
-									if (
-										file &&
-										(file.type === "text/html" || file.name.endsWith(".html"))
-									) {
-										prepareHtmlTemplate(file);
-									} else if (file) {
-										alert("Please upload an HTML file");
-									}
-								}}
-								onClick={() => {
-									const input = document.createElement("input");
-									input.type = "file";
-									input.accept = ".html,.htm";
-									input.onchange = () => {
-										const file = input.files?.[0];
-										if (
-											file &&
-											(file.type === "text/html" || file.name.endsWith(".html"))
-										) {
-											prepareHtmlTemplate(file);
-										} else if (file) {
-											alert("Please upload an HTML file");
+						<div className="mt-6">
+							<label className="label">Properties</label>
+							<p className="help-text mb-3">
+								Add attributes that describe your artwork
+							</p>
+							{attributes.map((attr, index) => (
+								<div key={index} className="flex gap-2 mb-2">
+									<input
+										className="input-field flex-1"
+										placeholder="Property"
+										value={attr.trait_type}
+										onChange={(e) =>
+											handleAttributeChange(index, "trait_type", e.target.value)
 										}
-									};
-									input.click();
-								}}
-							>
-								{htmlTemplateFile ? (
-									<div className="space-y-2">
-										<div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4">
-											<p className="text-sm font-medium text-zinc-300 mb-2">
-												{htmlTemplateFile.name}
-											</p>
-											<p className="text-xs text-zinc-400">
-												{htmlTemplateChunks.length} chunks •{" "}
-												{htmlTemplateContent.length} characters
-											</p>
-											<details className="mt-2">
-												<summary className="text-xs text-zinc-400 cursor-pointer">
-													Preview content
-												</summary>
-												<pre className="text-xs text-zinc-500 mt-1 p-2 bg-zinc-900 rounded max-h-32 overflow-auto">
-													{htmlTemplateContent.slice(0, 500)}
-													{htmlTemplateContent.length > 500 ? "..." : ""}
-												</pre>
-											</details>
-										</div>
-									</div>
-								) : (
-									<>
+									/>
+									<input
+										className="input-field flex-1"
+										placeholder="Value"
+										value={attr.value}
+										onChange={(e) =>
+											handleAttributeChange(index, "value", e.target.value)
+										}
+									/>
+									<button
+										type="button"
+										onClick={() => handleRemoveAttribute(index)}
+										className="btn-ghost"
+									>
 										<svg
-											className="w-8 h-8 text-gray-400 mx-auto mb-2"
+											className="w-5 h-5"
 											fill="none"
 											stroke="currentColor"
 											viewBox="0 0 24 24"
@@ -1047,324 +825,1061 @@ export default function Mint() {
 												strokeLinecap="round"
 												strokeLinejoin="round"
 												strokeWidth={2}
-												d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+												d="M6 18L18 6M6 6l12 12"
 											/>
 										</svg>
-										<p className="text-zinc-400 text-sm">
-											Drop an HTML template or click to browse
-										</p>
-										<p className="text-xs text-zinc-500 mt-1">
-											Use: {"{{FILE_URIS}}"} and {"{{FILE_HASH}}"} placeholders
-										</p>
-									</>
-								)}
+									</button>
+								</div>
+							))}
+							<button
+								type="button"
+								onClick={handleAddAttribute}
+								className="btn-secondary text-sm"
+							>
+								+ Add Property
+							</button>
+						</div>
+					</div>
+
+					{/* Step 3: Artwork URIs */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							Artwork URLs
+						</h3>
+						<p
+							className={`${
+								isDarkMode ? "text-zinc-400" : "text-zinc-600"
+							} mb-4`}
+						>
+							Upload your artwork to decentralized storage and provide the URLs
+							here. Collectors can select from these if you allow it.
+						</p>
+						<div>
+							<label className="label">Artwork URIs</label>
+							<textarea
+								rows={3}
+								className="textarea-field font-mono text-sm"
+								placeholder="ipfs://artwork1&#10;ipfs://artwork2&#10;https://arweave.net/artwork3"
+								value={artistArtworkUris}
+								onChange={(e) => setArtistArtworkUris(e.target.value)}
+								required
+							/>
+							<p className="help-text">
+								One URI per line. Add multiple versions for redundancy.
+							</p>
+
+							{/* File Upload Suggestions */}
+							<div
+								className={`mt-4 p-3 ${
+									isDarkMode
+										? "bg-zinc-800/30 border border-zinc-700/50"
+										: "bg-zinc-100 border border-zinc-300"
+								} rounded-lg`}
+							>
+								<h5
+									className={`text-sm font-medium ${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									} mb-2`}
+								>
+									Suggested upload options, the more the better:
+								</h5>
+								<div className="grid grid-cols-2 md:grid-cols-3 gap-1 text-xs">
+									<a
+										href="https://web3.storage"
+										target="_blank"
+										rel="noopener noreferrer"
+										className={`px-2 py-1 ${
+											isDarkMode
+												? "hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-300"
+												: "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-800"
+										} rounded transition-colors flex items-center justify-between`}
+									>
+										<span>Web3.Storage (IPFS)</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-black border border-zinc-300'} text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+									<a
+										href="https://ardrive.net"
+										target="_blank"
+										rel="noopener noreferrer"
+										className={`px-2 py-1 ${
+											isDarkMode
+												? "hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-300"
+												: "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-800"
+										} rounded transition-colors flex items-center justify-between`}
+									>
+										<span>ArDrive (Arweave)</span>
+										<span className="text-orange-400 font-medium relative group">
+											PAID
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-black border border-zinc-300'} text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Pay per upload • Permanent decentralized storage
+											</div>
+										</span>
+									</a>
+									<a
+										href="https://archive.org/create/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className={`px-2 py-1 ${
+											isDarkMode
+												? "hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-300"
+												: "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-800"
+										} rounded transition-colors flex items-center justify-between`}
+									>
+										<span>Internet Archive</span>
+										<span className="text-green-400 font-medium relative group">
+											FREE
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-black border border-zinc-300'} text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												No cost • Rate limiting for abuse prevention
+											</div>
+										</span>
+									</a>
+									<a
+										href="https://github.com"
+										target="_blank"
+										rel="noopener noreferrer"
+										className={`px-2 py-1 ${
+											isDarkMode
+												? "hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-300"
+												: "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-800"
+										} rounded transition-colors flex items-center justify-between`}
+									>
+										<span>GitHub (raw links)</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-black border border-zinc-300'} text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+									<a
+										href="https://developers.cloudflare.com/r2/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className={`px-2 py-1 ${
+											isDarkMode
+												? "hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-300"
+												: "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-800"
+										} rounded transition-colors flex items-center justify-between`}
+									>
+										<span>Cloudflare R2</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-black border border-zinc-300'} text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+									<a
+										href="https://aws.amazon.com/s3/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className={`px-2 py-1 ${
+											isDarkMode
+												? "hover:bg-zinc-700/50 text-zinc-400 hover:text-zinc-300"
+												: "hover:bg-zinc-200 text-zinc-600 hover:text-zinc-800"
+										} rounded transition-colors flex items-center justify-between`}
+									>
+										<span>AWS S3</span>
+										<span className="text-blue-400 font-medium relative group">
+											FREE+
+											<div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 ${isDarkMode ? 'bg-black text-white' : 'bg-white text-black border border-zinc-300'} text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+												Free with usage limits
+											</div>
+										</span>
+									</a>
+								</div>
 							</div>
 						</div>
 					</div>
-				</div>
 
-				{/* Step 4: Artist Permissions */}
-				<div className="card">
-					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						4. Artist Permissions
-					</h3>
-					<p className="text-zinc-400 mb-4">
-						What actions can you retain as the artist? (You can revoke these
-						later)
-					</p>
-					<div className="space-y-3">
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={artistUpdateThumb}
-								onChange={(e) => setArtistUpdateThumb(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">Update thumbnail</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={artistUpdateMeta}
-								onChange={(e) => setArtistUpdateMeta(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">
-								Update metadata (name, description, attributes)
-							</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={artistChooseUris}
-								onChange={(e) => setArtistChooseUris(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">
-								Select from artist-provided artworks
-							</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={artistAddRemove}
-								onChange={(e) => setArtistAddRemove(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">Add or remove artwork URIs</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={artistChooseThumb}
-								onChange={(e) => setArtistChooseThumb(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">
-								Select from artist-provided thumbnails
-							</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={artistUpdateMode}
-								onChange={(e) => setArtistUpdateMode(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">
-								Toggle between display modes
-							</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={artistUpdateTemplate}
-								onChange={(e) => setArtistUpdateTemplate(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">Update HTML template</span>
-						</label>
+					{/* Step 4: Display Options */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							Display Options
+						</h3>
+						<div className="space-y-4">
+							<div>
+								<label className="label">Display Mode</label>
+								<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+									<div
+										className={`p-4 border rounded-lg cursor-pointer transition-all ${
+											displayMode === 0
+												? isDarkMode
+													? "border-zinc-400 bg-zinc-800/50"
+													: "border-zinc-600 bg-zinc-100"
+												: isDarkMode
+												? "border-zinc-700 hover:border-zinc-600"
+												: "border-zinc-300 hover:border-zinc-400"
+										}`}
+										onClick={() => setDisplayMode(0)}
+									>
+										<div className="flex items-center gap-2 mb-2">
+											<input
+												type="radio"
+												name="displayMode"
+												checked={displayMode === 0}
+												onChange={() => setDisplayMode(0)}
+												className="radio"
+											/>
+											<span
+												className={`font-semibold ${
+													isDarkMode ? "text-zinc-200" : "text-zinc-800"
+												}`}
+											>
+												Direct File
+											</span>
+										</div>
+										<p
+											className={`text-sm ${
+												isDarkMode ? "text-zinc-400" : "text-zinc-600"
+											}`}
+										>
+											Shows your file directly. If a URL breaks, collectors must
+											manually switch to backup URLs, if permitted.
+										</p>
+									</div>
+									<div
+										className={`p-4 border rounded-lg cursor-pointer transition-all ${
+											displayMode === 1
+												? isDarkMode
+													? "border-zinc-400 bg-zinc-800/50"
+													: "border-zinc-600 bg-zinc-100"
+												: isDarkMode
+												? "border-zinc-700 hover:border-zinc-600"
+												: "border-zinc-300 hover:border-zinc-400"
+										}`}
+										onClick={() => setDisplayMode(1)}
+									>
+										<div className="flex items-center gap-2 mb-2">
+											<input
+												type="radio"
+												name="displayMode"
+												checked={displayMode === 1}
+												onChange={() => setDisplayMode(1)}
+												className="radio"
+											/>
+											<span
+												className={`font-semibold ${
+													isDarkMode ? "text-zinc-200" : "text-zinc-800"
+												}`}
+											>
+												Smart HTML
+											</span>
+										</div>
+										<p
+											className={`text-sm ${
+												isDarkMode ? "text-zinc-400" : "text-zinc-600"
+											}`}
+										>
+											Uses HTML template that automatically finds the first
+											working URL and displays your file. Smart failover
+											protection.
+										</p>
+									</div>
+								</div>
+							</div>
+						</div>
 					</div>
-				</div>
 
-				{/* Step 5: Collector Permissions */}
-				<div className="card">
-					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						5. Collector Permissions
-					</h3>
-					<p className="text-zinc-400 mb-4">
-						What can collectors do with your artwork?
-					</p>
-					<div className="space-y-3">
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={collectorChooseUris}
-								onChange={(e) => setCollectorChooseUris(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">
-								Select from artist-provided artworks
-							</span>
-						</label>
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={collectorAddRemove}
-								onChange={(e) => setCollectorAddRemove(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">Add their own artwork URIs</span>
-						</label>
-						{useOffchainThumbnail && (
+					{/* Step 5: Thumbnail */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							Thumbnail
+						</h3>
+						<p
+							className={`${
+								isDarkMode ? "text-zinc-400" : "text-zinc-600"
+							} mb-4`}
+						>
+							Choose how to provide a thumbnail for your artwork.
+						</p>
+
+						<div className="space-y-4">
+							<div>
+								<label className="label">Thumbnail Storage</label>
+								<div className="grid grid-cols-2 gap-3">
+									<label
+										className={`flex items-center gap-3 p-3 border ${
+											isDarkMode
+												? "border-zinc-700 hover:border-zinc-600"
+												: "border-zinc-300 hover:border-zinc-400"
+										} rounded-lg cursor-pointer transition-colors`}
+									>
+										<input
+											type="radio"
+											name="thumbnailMode"
+											checked={!useOffchainThumbnail}
+											onChange={() => setUseOffchainThumbnail(false)}
+											className="radio"
+										/>
+										<div>
+											<div
+												className={`${
+													isDarkMode ? "text-zinc-300" : "text-zinc-700"
+												} font-medium`}
+											>
+												On-Chain
+											</div>
+											<div
+												className={`text-xs ${
+													isDarkMode ? "text-zinc-500" : "text-zinc-500"
+												}`}
+											>
+												Stored directly on blockchain
+											</div>
+										</div>
+									</label>
+									<label
+										className={`flex items-center gap-3 p-3 border ${
+											isDarkMode
+												? "border-zinc-700 hover:border-zinc-600"
+												: "border-zinc-300 hover:border-zinc-400"
+										} rounded-lg cursor-pointer transition-colors`}
+									>
+										<input
+											type="radio"
+											name="thumbnailMode"
+											checked={useOffchainThumbnail}
+											onChange={() => setUseOffchainThumbnail(true)}
+											className="radio"
+										/>
+										<div>
+											<div
+												className={`${
+													isDarkMode ? "text-zinc-300" : "text-zinc-700"
+												} font-medium`}
+											>
+												Off-Chain
+											</div>
+											<div
+												className={`text-xs ${
+													isDarkMode ? "text-zinc-500" : "text-zinc-500"
+												}`}
+											>
+												External URLs
+											</div>
+										</div>
+									</label>
+								</div>
+							</div>
+
+							{!useOffchainThumbnail ? (
+								<div>
+									<label className="label">Upload Thumbnail File</label>
+									<div
+										className={`upload-zone ${thumbnailFile ? "active" : ""}`}
+										onDragOver={(e) => {
+											e.preventDefault();
+											e.currentTarget.classList.add("active");
+										}}
+										onDragLeave={(e) => {
+											e.currentTarget.classList.remove("active");
+										}}
+										onDrop={(e) => {
+											e.preventDefault();
+											e.currentTarget.classList.remove("active");
+											const file = e.dataTransfer.files?.[0];
+											if (file && isThumbnailSupported(file)) {
+												prepareThumbnail(file);
+											} else if (file) {
+												alert(getUnsupportedThumbnailMessage(file));
+											}
+										}}
+										onClick={() => {
+											const input = document.createElement("input");
+											input.type = "file";
+											input.accept = getThumbnailAcceptAttribute();
+											input.onchange = () => {
+												const file = input.files?.[0];
+												if (file && isThumbnailSupported(file)) {
+													prepareThumbnail(file);
+												} else if (file) {
+													alert(getUnsupportedThumbnailMessage(file));
+												}
+											};
+											input.click();
+										}}
+									>
+										{thumbnailPreview ? (
+											<div className="space-y-3">
+												<FilePreview
+													file={thumbnailFile}
+													previewUrl={thumbnailPreview}
+													maxHeight="max-h-32"
+												/>
+												<div
+													className={`text-sm ${
+														isDarkMode ? "text-zinc-400" : "text-zinc-600"
+													} text-center`}
+												>
+													<div>
+														{thumbChunks.length} chunks • {thumbLength} bytes
+														original • {(thumbLength / 1024).toFixed(1)}KB
+													</div>
+													<div
+														className={`text-xs ${
+															isDarkMode ? "text-zinc-500" : "text-zinc-500"
+														} mt-1`}
+													>
+														Will be compressed and stored on-chain
+													</div>
+													{thumbLength > 20 * 1024 && (
+														<div className="text-xs text-orange-400 mt-1 font-medium">
+															⚠️ Large file - may result in high gas costs
+														</div>
+													)}
+												</div>
+											</div>
+										) : (
+											<div className="text-center py-8">
+												<svg
+													className={`w-10 h-10 ${
+														isDarkMode ? "text-zinc-400" : "text-zinc-600"
+													} mx-auto mb-3`}
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														strokeLinecap="round"
+														strokeLinejoin="round"
+														strokeWidth={2}
+														d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+													/>
+												</svg>
+												<p
+													className={`${
+														isDarkMode ? "text-zinc-300" : "text-zinc-700"
+													} mb-1`}
+												>
+													Drop thumbnail file or click to browse
+												</p>
+												<p
+													className={`text-xs ${
+														isDarkMode ? "text-zinc-500" : "text-zinc-500"
+													}`}
+												>
+													Image files only • Max 120KB • Will be compressed
+												</p>
+												<p className="text-xs text-orange-400 mt-1">
+													Files over 20KB may result in high gas costs
+												</p>
+											</div>
+										)}
+									</div>
+								</div>
+							) : (
+								<div>
+									<label className="label">Thumbnail URIs</label>
+									<textarea
+										rows={3}
+										className="textarea-field font-mono text-sm"
+										placeholder="ipfs://thumb1&#10;ipfs://thumb2&#10;https://example.com/thumb.jpg"
+										value={artistThumbnailUris}
+										onChange={(e) => setArtistThumbnailUris(e.target.value)}
+									/>
+									<p className="help-text">
+										One URI per line. Collectors can select from these
+										thumbnails if allowed.
+									</p>
+								</div>
+							)}
+						</div>
+					</div>
+
+					{/* Step 6: Advanced Options */}
+					<div className="card">
+						<details className="group">
+							<summary className="cursor-pointer list-none">
+								<div className="flex items-center justify-between">
+									<h3
+										className={`text-lg font-semibold ${
+											isDarkMode ? "text-zinc-100" : "text-zinc-900"
+										}`}
+									>
+										Advanced Options
+									</h3>
+									<svg
+										className={`w-5 h-5 ${
+											isDarkMode ? "text-zinc-400" : "text-zinc-600"
+										} transform group-open:rotate-180 transition-transform`}
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+									>
+										<path
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											strokeWidth={2}
+											d="M19 9l-7 7-7-7"
+										/>
+									</svg>
+								</div>
+							</summary>
+							<div className="mt-4 space-y-4">
+								<div>
+									<label className="label">
+										Custom HTML Template (optional)
+									</label>
+									<p
+										className={`text-sm ${
+											isDarkMode ? "text-zinc-400" : "text-zinc-600"
+										} mb-4`}
+									>
+										Upload a custom HTML template for Smart HTML mode. Use{" "}
+										{"{{FILE_URIS}}"} and {"{{FILE_HASH}}"} placeholders.
+									</p>
+									<div
+										className={`upload-zone ${
+											htmlTemplateFile ? "active" : ""
+										}`}
+										onDragOver={(e) => {
+											e.preventDefault();
+											e.currentTarget.classList.add("active");
+										}}
+										onDragLeave={(e) => {
+											e.currentTarget.classList.remove("active");
+										}}
+										onDrop={(e) => {
+											e.preventDefault();
+											e.currentTarget.classList.remove("active");
+											const file = e.dataTransfer.files?.[0];
+											if (
+												file &&
+												(file.type === "text/html" ||
+													file.name.endsWith(".html"))
+											) {
+												prepareHtmlTemplate(file);
+											} else if (file) {
+												alert("Please upload an HTML file");
+											}
+										}}
+										onClick={() => {
+											const input = document.createElement("input");
+											input.type = "file";
+											input.accept = ".html,.htm";
+											input.onchange = () => {
+												const file = input.files?.[0];
+												if (
+													file &&
+													(file.type === "text/html" ||
+														file.name.endsWith(".html"))
+												) {
+													prepareHtmlTemplate(file);
+												} else if (file) {
+													alert("Please upload an HTML file");
+												}
+											};
+											input.click();
+										}}
+									>
+										{htmlTemplateFile ? (
+											<div className="space-y-2">
+												<div
+													className={`${
+														isDarkMode
+															? "bg-zinc-800 border-zinc-700"
+															: "bg-zinc-50 border-zinc-300"
+													} border rounded-lg p-4`}
+												>
+													<p
+														className={`text-sm font-medium ${
+															isDarkMode ? "text-zinc-300" : "text-zinc-700"
+														} mb-2`}
+													>
+														{htmlTemplateFile.name}
+													</p>
+													<p
+														className={`text-xs ${
+															isDarkMode ? "text-zinc-400" : "text-zinc-600"
+														}`}
+													>
+														{htmlTemplateChunks.length} chunks •{" "}
+														{htmlTemplateContent.length} characters
+													</p>
+													<details className="mt-2">
+														<summary
+															className={`text-xs ${
+																isDarkMode
+																	? "text-zinc-400 hover:text-zinc-300"
+																	: "text-zinc-600 hover:text-zinc-800"
+															} cursor-pointer`}
+														>
+															Preview content
+														</summary>
+														<pre
+															className={`text-xs ${
+																isDarkMode
+																	? "text-zinc-500 bg-zinc-900"
+																	: "text-zinc-600 bg-zinc-100"
+															} mt-1 p-2 rounded max-h-32 overflow-auto`}
+														>
+															{htmlTemplateContent.slice(0, 500)}
+															{htmlTemplateContent.length > 500 ? "..." : ""}
+														</pre>
+													</details>
+												</div>
+											</div>
+										) : (
+											<div className="text-center py-6">
+												<svg
+													className={`w-8 h-8 ${
+														isDarkMode ? "text-zinc-400" : "text-zinc-600"
+													} mx-auto mb-2`}
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														strokeLinecap="round"
+														strokeLinejoin="round"
+														strokeWidth={2}
+														d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+													/>
+												</svg>
+												<p
+													className={`${
+														isDarkMode ? "text-zinc-300" : "text-zinc-700"
+													} mb-1`}
+												>
+													Drop HTML template or click to browse
+												</p>
+												<p
+													className={`text-xs ${
+														isDarkMode ? "text-zinc-500" : "text-zinc-500"
+													}`}
+												>
+													Use: {"{{FILE_URIS}}"} and {"{{FILE_HASH}}"}{" "}
+													placeholders
+												</p>
+											</div>
+										)}
+									</div>
+								</div>
+							</div>
+						</details>
+					</div>
+
+					{/* Step 7: Artist Permissions */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							Artist Permissions
+						</h3>
+						<p
+							className={`${
+								isDarkMode ? "text-zinc-400" : "text-zinc-600"
+							} mb-4`}
+						>
+							What actions can you retain as the artist? (You can revoke these
+							later)
+						</p>
+						<div className="space-y-3">
 							<label className="flex items-center gap-3">
 								<input
 									type="checkbox"
-									checked={collectorChooseThumb}
-									onChange={(e) => setCollectorChooseThumb(e.target.checked)}
+									checked={artistUpdateThumb}
+									onChange={(e) => setArtistUpdateThumb(e.target.checked)}
 									className="checkbox"
 								/>
-								<span className="text-zinc-300">
-									Select from artist-provided thumbnails
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Update thumbnail
 								</span>
 							</label>
-						)}
-						<label className="flex items-center gap-3">
-							<input
-								type="checkbox"
-								checked={collectorUpdateMode}
-								onChange={(e) => setCollectorUpdateMode(e.target.checked)}
-								className="checkbox"
-							/>
-							<span className="text-zinc-300">
-								Toggle between display modes
-							</span>
-						</label>
-					</div>
-				</div>
-
-				{/* Step 6: Recipients */}
-				<div className="card">
-					<h3 className="text-lg font-semibold text-zinc-100 mb-4">
-						{type === "ERC1155"
-							? "6. Recipients & Quantities"
-							: "6. Recipients"}
-					</h3>
-					<div className="space-y-4">
-						<div>
-							<label className="label">Recipient Addresses *</label>
-							<input
-								className="input-field font-mono text-sm"
-								placeholder="0x123..., 0x456..."
-								value={recipients}
-								onChange={(e) => setRecipients(e.target.value)}
-								required
-							/>
-							<p className="help-text">Comma-separated wallet addresses</p>
-						</div>
-						{type === "ERC1155" && (
-							<div>
-								<label className="label">Quantities *</label>
+							<label className="flex items-center gap-3">
 								<input
-									className="input-field"
-									placeholder="1, 5, 10"
-									value={quantities}
-									onChange={(e) => setQuantities(e.target.value)}
-									required
+									type="checkbox"
+									checked={artistUpdateMeta}
+									onChange={(e) => setArtistUpdateMeta(e.target.checked)}
+									className="checkbox"
 								/>
-								<p className="help-text">
-									One quantity per recipient, comma-separated
-								</p>
-							</div>
-						)}
-					</div>
-				</div>
-
-				{/* Submit */}
-				<div className="flex justify-end gap-3">
-					<button
-						type="button"
-						onClick={() => navigate("/collections")}
-						className="btn-secondary"
-					>
-						Cancel
-					</button>
-					<button
-						type="submit"
-						className="btn-primary"
-						disabled={
-							!name ||
-							recipientsArr.length === 0 ||
-							isPending ||
-							isConfirming ||
-							!!simulateError
-						}
-					>
-						{isPending || isConfirming ? (
-							<>
-								<svg
-									className="animate-spin -ml-1 mr-2 h-4 w-4 text-black inline"
-									fill="none"
-									viewBox="0 0 24 24"
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
 								>
-									<circle
-										className="opacity-25"
-										cx="12"
-										cy="12"
-										r="10"
-										stroke="currentColor"
-										strokeWidth="4"
-									></circle>
-									<path
-										className="opacity-75"
-										fill="currentColor"
-										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-									></path>
-								</svg>
-								{isPending ? "Creating..." : "Confirming..."}
-							</>
-						) : (
-							"Create Artwork"
-						)}
-					</button>
-				</div>
-
-				{hash && !isSuccess && (
-					<div className="text-center text-sm text-zinc-400">
-						Transaction submitted. Waiting for confirmation...
+									Update metadata (name, description, attributes)
+								</span>
+							</label>
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={artistUpdateTemplate}
+									onChange={(e) => setArtistUpdateTemplate(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Update HTML template
+								</span>
+							</label>
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={artistChooseUris}
+									onChange={(e) => setArtistChooseUris(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Select the artwork URI to display in direct file mode
+								</span>
+							</label>
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={artistAddRemove}
+									onChange={(e) => setArtistAddRemove(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Add or remove artwork URIs
+								</span>
+							</label>
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={artistChooseThumb}
+									onChange={(e) => setArtistChooseThumb(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Select the thumbnail to be displayed in off-chain mode
+								</span>
+							</label>
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={artistUpdateMode}
+									onChange={(e) => setArtistUpdateMode(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Toggle between display modes
+								</span>
+							</label>
+						</div>
 					</div>
-				)}
 
-				{simulateError && (
-					<div className="card bg-orange-500 bg-opacity-10 border-orange-500 border-opacity-30">
-						<div className="text-center py-4">
-							<h3 className="text-lg text-orange-300 mb-2">
-								Transaction Will Fail
-							</h3>
-							<p className="text-orange-200 text-sm mb-2">
-								{simulateError.message}
-							</p>
-							<details className="text-left text-xs text-orange-300">
-								<summary className="cursor-pointer">Show details</summary>
-								<pre className="mt-2 p-2 bg-orange-900 bg-opacity-20 rounded overflow-auto">
-									{JSON.stringify(
-										simulateError,
-										(_, value) =>
-											typeof value === "bigint" ? value.toString() : value,
-										2
+					{/* Step 8: Collector Permissions */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							Collector Permissions
+						</h3>
+						<p
+							className={`${
+								isDarkMode ? "text-zinc-400" : "text-zinc-600"
+							} mb-4`}
+						>
+							What can collectors do with your artwork? (You can't change these
+							later)
+						</p>
+						<div className="space-y-3">
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={collectorChooseUris}
+									onChange={(e) => setCollectorChooseUris(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Select the artwork URI to display in direct file mode
+								</span>
+							</label>
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={collectorAddRemove}
+									onChange={(e) => setCollectorAddRemove(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Add or remove their own artwork URIs
+								</span>
+							</label>
+							{useOffchainThumbnail && (
+								<label className="flex items-center gap-3">
+									<input
+										type="checkbox"
+										checked={collectorChooseThumb}
+										onChange={(e) => setCollectorChooseThumb(e.target.checked)}
+										className="checkbox"
+									/>
+									<span
+										className={`${
+											isDarkMode ? "text-zinc-300" : "text-zinc-700"
+										}`}
+									>
+										Select the thumbnail to be displayed in off-chain mode
+									</span>
+								</label>
+							)}
+							<label className="flex items-center gap-3">
+								<input
+									type="checkbox"
+									checked={collectorUpdateMode}
+									onChange={(e) => setCollectorUpdateMode(e.target.checked)}
+									className="checkbox"
+								/>
+								<span
+									className={`${
+										isDarkMode ? "text-zinc-300" : "text-zinc-700"
+									}`}
+								>
+									Toggle between display modes
+								</span>
+							</label>
+						</div>
+					</div>
+
+					{/* Step 9: Recipients */}
+					<div className="card">
+						<h3
+							className={`text-lg font-semibold ${
+								isDarkMode ? "text-zinc-100" : "text-zinc-900"
+							} mb-4`}
+						>
+							{type === "ERC1155" ? "Recipients & Quantities" : "Recipients"}
+						</h3>
+						<div className="space-y-4">
+							<div>
+								<label className="label">Recipient Addresses *</label>
+								<div className="flex gap-2">
+									<input
+										className="input-field font-mono text-sm flex-1"
+										placeholder="0x123..., 0x456..."
+										value={recipients}
+										onChange={(e) => setRecipients(e.target.value)}
+										required
+									/>
+									{connectedAddress && (
+										<button
+											type="button"
+											onClick={() => setRecipients(connectedAddress as string)}
+											className="px-3 py-2 border border-zinc-600 hover:border-zinc-500 text-xs text-zinc-400 hover:text-zinc-300 transition-all duration-200 flex items-center gap-1.5"
+										>
+											<svg
+												className="w-4 h-4"
+												fill="currentColor"
+												viewBox="0 0 20 20"
+											>
+												<path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" />
+											</svg>
+											<span>Me</span>
+										</button>
 									)}
-								</pre>
-							</details>
-						</div>
-					</div>
-				)}
-
-				{writeError && (
-					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
-						<div className="text-center py-4">
-							<h3 className="text-lg text-red-300 mb-2">Transaction Failed</h3>
-							<p className="text-red-200 text-sm mb-4">
-								{writeError.message.includes("User rejected")
-									? "Transaction was rejected by user"
-									: writeError.message.split(".")[0] +
-									  (writeError.message.includes(".") ? "." : "")}
-							</p>
-							{writeError.message.length > 100 && (
-								<details className="text-left text-xs text-red-300">
-									<summary className="cursor-pointer hover:text-red-200">
-										Show full error
-									</summary>
-									<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
-										<p className="break-words">{writeError.message}</p>
-									</div>
-								</details>
+								</div>
+								<p className="help-text">Comma-separated wallet addresses</p>
+							</div>
+							{type === "ERC1155" && (
+								<div>
+									<label className="label">Quantities *</label>
+									<input
+										className="input-field"
+										placeholder="1, 5, 10"
+										value={quantities}
+										onChange={(e) => setQuantities(e.target.value)}
+										required
+									/>
+									<p className="help-text">
+										One quantity per recipient, comma-separated
+									</p>
+								</div>
 							)}
 						</div>
 					</div>
-				)}
 
-				{receiptError && (
-					<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
-						<div className="text-center py-4">
-							<h3 className="text-lg text-red-300 mb-2">Transaction Failed</h3>
-							<p className="text-red-200 text-sm mb-4">
-								{receiptError.message.split(".")[0] +
-									(receiptError.message.includes(".") ? "." : "")}
-							</p>
-							{receiptError.message.length > 100 && (
-								<details className="text-left text-xs text-red-300">
-									<summary className="cursor-pointer hover:text-red-200">
-										Show full error
-									</summary>
-									<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
-										<p className="break-words">{receiptError.message}</p>
-									</div>
-								</details>
+					{/* Submit */}
+					<div className="flex justify-end gap-3">
+						<button
+							type="button"
+							onClick={() => navigate("/collections")}
+							className="btn-secondary"
+						>
+							Cancel
+						</button>
+						<button
+							type="submit"
+							className="btn-primary"
+							disabled={
+								!name ||
+								!artistArtworkUris.trim() ||
+								recipientsArr.length === 0 ||
+								isPending ||
+								isConfirming ||
+								!!simulateError
+							}
+						>
+							{isPending || isConfirming ? (
+								<>
+									<svg
+										className="animate-spin -ml-1 mr-2 h-4 w-4 inline"
+										fill="none"
+										viewBox="0 0 24 24"
+									>
+										<circle
+											className="opacity-25"
+											cx="12"
+											cy="12"
+											r="10"
+											stroke="currentColor"
+											strokeWidth="4"
+										></circle>
+										<path
+											className="opacity-75"
+											fill="currentColor"
+											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+										></path>
+									</svg>
+									{isPending ? "Creating..." : "Confirming..."}
+								</>
+							) : (
+								"Create Artwork"
 							)}
-						</div>
+						</button>
 					</div>
-				)}
-			</form>
+
+					{hash && !isSuccess && (
+						<div
+							className={`text-center text-sm ${
+								isDarkMode ? "text-zinc-400" : "text-zinc-600"
+							}`}
+						>
+							Transaction submitted. Waiting for confirmation...
+						</div>
+					)}
+
+					{simulateError && (
+						<div className="card bg-orange-500 bg-opacity-10 border-orange-500 border-opacity-30">
+							<div className="text-center py-4">
+								<h3 className="text-lg text-orange-300 mb-2">
+									Transaction Will Fail
+								</h3>
+								<p className="text-orange-200 text-sm mb-2">
+									{simulateError?.message}
+								</p>
+								<details className="text-left text-xs text-orange-300">
+									<summary className="cursor-pointer">Show details</summary>
+									<pre className="mt-2 p-2 bg-orange-900 bg-opacity-20 rounded overflow-auto">
+										{JSON.stringify(
+											simulateError,
+											(_, value) =>
+												typeof value === "bigint" ? value.toString() : value,
+											2
+										)}
+									</pre>
+								</details>
+							</div>
+						</div>
+					)}
+
+					{writeError && (
+						<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
+							<div className="text-center py-4">
+								<h3 className="text-lg text-red-300 mb-2">
+									Transaction Failed
+								</h3>
+								<p className="text-red-200 text-sm mb-4">
+									{writeError?.message?.includes("User rejected")
+										? "Transaction was rejected by user"
+										: (writeError?.message?.split(".")[0] || "Unknown error") +
+										  (writeError?.message?.includes(".") ? "." : "")}
+								</p>
+								{writeError?.message && writeError.message.length > 100 && (
+									<details className="text-left text-xs text-red-300">
+										<summary className="cursor-pointer hover:text-red-200">
+											Show full error
+										</summary>
+										<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
+											<p className="break-words">{writeError.message}</p>
+										</div>
+									</details>
+								)}
+							</div>
+						</div>
+					)}
+
+					{receiptError && (
+						<div className="card bg-red-500 bg-opacity-10 border-red-500 border-opacity-30">
+							<div className="text-center py-4">
+								<h3 className="text-lg text-red-300 mb-2">
+									Transaction Failed
+								</h3>
+								<p className="text-red-200 text-sm mb-4">
+									{(receiptError?.message?.split(".")[0] || "Unknown error") +
+										(receiptError?.message?.includes(".") ? "." : "")}
+								</p>
+								{receiptError?.message && receiptError.message.length > 100 && (
+									<details className="text-left text-xs text-red-300">
+										<summary className="cursor-pointer hover:text-red-200">
+											Show full error
+										</summary>
+										<div className="mt-2 p-3 bg-red-900/20 rounded border border-red-800/30 max-h-40 overflow-auto">
+											<p className="break-words">{receiptError.message}</p>
+										</div>
+									</details>
+								)}
+							</div>
+						</div>
+					)}
+				</form>
+			</div>
+
+			<Footer isDarkMode={isDarkMode} />
 		</div>
 	);
 }

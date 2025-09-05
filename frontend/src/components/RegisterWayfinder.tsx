@@ -5,50 +5,52 @@ import {
 	useSimulateContract,
 } from "wagmi";
 import type { Address } from "viem";
-import { multiplexAbi } from "../abis/multiplex-abi";
+import { wayfinderAbi } from "../abis/wayfinder-abi";
+import { useTheme } from "../hooks/useTheme";
 
-interface RegisterMultiplexProps {
+interface RegisterWayfinderProps {
 	creator: Address;
 }
 
-export default function RegisterMultiplex({ creator }: RegisterMultiplexProps) {
-	const multiplexAddress = import.meta.env.VITE_MULTIPLEX_ADDRESS as Address;
-	const multiplexExtensionAddress = import.meta.env
-		.VITE_MULTIPLEX_EXTENSION_ADDRESS as Address;
+export default function RegisterWayfinder({ creator }: RegisterWayfinderProps) {
+	const { isDarkMode } = useTheme();
+	const wayfinderAddress = import.meta.env.VITE_WAYFINDER_ADDRESS as Address;
+	const wayfinderExtensionAddress = import.meta.env
+		.VITE_WAYFINDER_EXTENSION_ADDRESS as Address;
 
 	const { data: hash, isPending, writeContract } = useWriteContract();
 	const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
 		hash,
 	});
 
-	// Check if contract is already registered with Multiplex
+	// Check if contract is already registered with Wayfinder
 	const { data: isRegistered } = useReadContract({
-		abi: multiplexAbi,
-		address: multiplexAddress,
+		abi: wayfinderAbi,
+		address: wayfinderAddress,
 		functionName: "isContractOperator",
-		args: [creator, multiplexExtensionAddress],
+		args: [creator, wayfinderExtensionAddress],
 		query: { enabled: !!creator },
 	});
 
 	// Simulate the registration to catch errors
 	const { error: simulateError } = useSimulateContract({
-		abi: multiplexAbi,
-		address: multiplexAddress,
+		abi: wayfinderAbi,
+		address: wayfinderAddress,
 		functionName: "registerContract",
-		args: [creator, multiplexExtensionAddress],
+		args: [creator, wayfinderExtensionAddress],
 		query: { enabled: !!creator && !isRegistered },
 	});
 
 	const handleRegister = () => {
 		writeContract({
-			abi: multiplexAbi,
-			address: multiplexAddress,
+			abi: wayfinderAbi,
+			address: wayfinderAddress,
 			functionName: "registerContract",
-			args: [creator, multiplexExtensionAddress],
+			args: [creator, wayfinderExtensionAddress],
 		});
 	};
 
-		// Show success message for recent transaction
+	// Show success message for recent transaction
 	if (isSuccess) {
 		return (
 			<div className="p-4 bg-success bg-opacity-10 border border-success border-opacity-20">
@@ -67,7 +69,7 @@ export default function RegisterMultiplex({ creator }: RegisterMultiplexProps) {
 						/>
 					</svg>
 					<p className="text-sm text-success font-medium">
-						Contract registered with Multiplex successfully!
+						Contract registered with Wayfinder successfully!
 					</p>
 				</div>
 			</div>
@@ -93,7 +95,7 @@ export default function RegisterMultiplex({ creator }: RegisterMultiplexProps) {
 						/>
 					</svg>
 					<p className="text-sm text-success font-medium">
-						Contract is already registered with Multiplex!
+						Contract is already registered with Wayfinder!
 					</p>
 				</div>
 			</div>
@@ -101,14 +103,28 @@ export default function RegisterMultiplex({ creator }: RegisterMultiplexProps) {
 	}
 
 	return (
-		<div className="p-4 bg-zinc-800 border border-zinc-700">
+		<div
+			className={`p-4 ${
+				isDarkMode
+					? "bg-zinc-800 border-zinc-700"
+					: "bg-zinc-100 border-zinc-300"
+			} border`}
+		>
 			<div className="flex items-start justify-between">
 				<div>
-					<h4 className="font-medium text-zinc-100">
-						Register with Multiplex
+					<h4
+						className={`font-medium ${
+							isDarkMode ? "text-zinc-100" : "text-zinc-900"
+						}`}
+					>
+						Register with Wayfinder
 					</h4>
-					<p className="text-sm text-zinc-400 mt-1">
-						Required to enable Multiplex features for this collection
+					<p
+						className={`text-sm ${
+							isDarkMode ? "text-zinc-400" : "text-zinc-600"
+						} mt-1`}
+					>
+						Required to enable Wayfinder features for this collection
 					</p>
 				</div>
 			</div>
@@ -116,12 +132,18 @@ export default function RegisterMultiplex({ creator }: RegisterMultiplexProps) {
 			<button
 				onClick={handleRegister}
 				className="btn-primary w-full mt-4"
-				disabled={isPending || isConfirming || !creator || isRegistered || !!simulateError}
+				disabled={
+					isPending ||
+					isConfirming ||
+					!creator ||
+					isRegistered ||
+					!!simulateError
+				}
 			>
 				{isPending || isConfirming ? (
 					<>
 						<svg
-							className="animate-spin -ml-1 mr-2 h-4 w-4 text-black inline"
+							className="animate-spin -ml-1 mr-2 h-4 w-4 inline"
 							fill="none"
 							viewBox="0 0 24 24"
 						>
@@ -150,8 +172,12 @@ export default function RegisterMultiplex({ creator }: RegisterMultiplexProps) {
 
 			{simulateError && (
 				<div className="mt-2 p-3 bg-orange-500 bg-opacity-10 border border-orange-500 border-opacity-30 rounded">
-					<p className="text-sm text-orange-300 font-medium">Transaction will fail:</p>
-					<p className="text-xs text-orange-200 mt-1">{simulateError.message}</p>
+					<p className="text-sm text-orange-300 font-medium">
+						Transaction will fail:
+					</p>
+					<p className="text-xs text-orange-200 mt-1">
+						{simulateError.message}
+					</p>
 				</div>
 			)}
 

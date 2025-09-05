@@ -2,11 +2,11 @@
 pragma solidity >=0.8.30 <0.9.0;
 
 /**
- * @title IMultiplex
+ * @title IWayfinder
  * @author Yigit Duman (@yigitduman)
- * @notice Interface for the Multiplex contract
+ * @notice Interface for the Wayfinder contract
  */
-interface IMultiplex {
+interface IWayfinder {
     /*//////////////////////////////////////////////////////////////
                                 ENUMS
     //////////////////////////////////////////////////////////////*/

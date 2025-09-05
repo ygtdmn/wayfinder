@@ -9,7 +9,7 @@ const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as
 	| undefined;
 
 export const wagmiConfig = getDefaultConfig({
-	appName: "Multiplex Frontend",
+	appName: "Wayfinder Frontend",
 	projectId: projectId ?? "",
 	chains,
 	transports: {

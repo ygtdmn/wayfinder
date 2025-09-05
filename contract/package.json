@@ -1,6 +1,6 @@
 {
-  "name": "multiplex-solidity",
-  "description": "Solidity contracts for Multiplex",
+  "name": "wayfinder-solidity",
+  "description": "Solidity contracts for Wayfinder",
   "version": "1.0.0",
   "dependencies": {
     "@manifoldxyz/creator-core-solidity": "^3.0.0",
@@ -20,7 +20,7 @@
     "forge",
     "foundry",
     "smart-contracts",
-    "solidity",
+    "solidity"
   ],
   "private": true,
   "scripts": {

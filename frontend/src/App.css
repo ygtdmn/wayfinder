@@ -1,61 +1,121 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap");
 
 /* Dark theme styles */
 * {
 	box-sizing: border-box;
 }
 
+/* Body styling is now handled by ThemeContext */
 body {
-	font-family: "Inter", "FK Grotesk", system-ui, Avenir, Helvetica, Arial,
-		sans-serif !important;
-	background: #0a0a0a;
-	color: #e4e4e7;
 	line-height: 1.6;
 }
 
 /* Form elements */
 .input-field {
-	@apply w-full px-4 py-3 bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all;
+	@apply w-full px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all;
+	background-color: var(--input-bg);
+	border: 1px solid var(--input-border);
+	color: var(--input-text);
+}
+
+.input-field::placeholder {
+	color: var(--input-placeholder);
 }
 
 .textarea-field {
-	@apply w-full px-4 py-3 bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all resize-none;
+	@apply w-full px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all resize-none;
+	background-color: var(--input-bg);
+	border: 1px solid var(--input-border);
+	color: var(--input-text);
+}
+
+.textarea-field::placeholder {
+	color: var(--input-placeholder);
 }
 
 .btn-primary {
-	@apply px-6 py-3 bg-white text-black font-bold hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2 focus:ring-offset-zinc-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+	@apply px-6 py-3 font-bold focus:outline-none focus:ring-2 focus:ring-gray-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+	background-color: var(--btn-primary-bg);
+	color: var(--btn-primary-text);
+}
+
+.btn-primary:hover:not(:disabled) {
+	background-color: var(--btn-primary-hover);
 }
 
 .btn-secondary {
-	@apply px-6 py-3 bg-zinc-800 text-zinc-100 border border-zinc-700 font-medium hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-600 focus:ring-offset-2 focus:ring-offset-zinc-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+	@apply px-6 py-3 font-medium focus:outline-none focus:ring-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+	background-color: var(--btn-secondary-bg);
+	color: var(--btn-secondary-text);
+	border: 1px solid var(--btn-secondary-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+	background-color: var(--btn-secondary-hover);
 }
 
 .btn-ghost {
-	@apply px-4 py-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all;
+	@apply px-4 py-2 transition-all;
+	color: var(--btn-ghost-text);
+}
+
+.btn-ghost:hover {
+	color: var(--btn-ghost-hover-text);
+	background-color: var(--btn-ghost-hover-bg);
+}
+
+.btn-danger {
+	@apply px-6 py-3 font-bold focus:outline-none focus:ring-2 focus:ring-red-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+	background-color: var(--btn-danger-bg);
+	color: var(--btn-danger-text);
+}
+
+.btn-danger:hover:not(:disabled) {
+	background-color: var(--btn-danger-hover);
 }
 
 /* Card styles */
 .card {
-	@apply bg-zinc-900 shadow-lg border border-zinc-800 p-6;
+	@apply shadow-lg p-6;
+	background-color: var(--card-bg);
+	border: 1px solid var(--card-border);
 }
 
 .card-hover {
-	@apply card hover:bg-zinc-800 hover:border-zinc-700 transition-all cursor-pointer;
+	@apply shadow-lg p-6 transition-all cursor-pointer;
+	background-color: var(--card-bg);
+	border: 1px solid var(--card-border);
+}
+
+.card-hover:hover {
+	background-color: var(--card-hover-bg);
+	border-color: var(--card-hover-border);
 }
 
 /* Labels */
 .label {
-	@apply block text-sm font-medium text-zinc-300 mb-2;
+	@apply block text-sm font-medium mb-2;
+	color: var(--label-text);
 }
 
 /* Checkbox styles */
 .checkbox {
-	@apply w-4 h-4 text-gray-400 bg-zinc-800 border-zinc-600 focus:ring-gray-400 focus:ring-2;
+	@apply w-4 h-4 focus:ring-2;
+	background-color: var(--input-bg);
+	border: 1px solid var(--input-border);
+	color: var(--btn-ghost-text);
 }
 
 /* File upload area */
 .upload-zone {
-	@apply border-2 border-dashed border-zinc-600 p-8 text-center bg-zinc-900 hover:bg-zinc-800 hover:border-zinc-500 transition-all cursor-pointer;
+	@apply border-2 border-dashed p-8 text-center transition-all cursor-pointer;
+	background-color: var(--card-bg);
+	border-color: var(--input-border);
+}
+
+.upload-zone:hover {
+	background-color: var(--card-hover-bg);
+	border-color: var(--btn-ghost-text);
 }
 
 .upload-zone.active {
@@ -81,7 +141,8 @@ body {
 
 /* Progress indicator */
 .progress-bar {
-	@apply w-full bg-zinc-700 h-2;
+	@apply w-full h-2;
+	background-color: var(--input-border);
 }
 
 .progress-fill {
@@ -90,12 +151,14 @@ body {
 
 /* Section divider */
 .divider {
-	@apply border-t border-zinc-800 my-8;
+	@apply border-t my-8;
+	border-color: var(--card-border);
 }
 
 /* Help text */
 .help-text {
-	@apply text-sm text-zinc-400 mt-2;
+	@apply text-sm mt-2;
+	color: var(--help-text);
 }
 
 .error-text {
@@ -104,11 +167,17 @@ body {
 
 /* Navigation tabs */
 .tab {
-	@apply px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 border-b-2 border-transparent transition-all;
+	@apply px-4 py-2 text-sm font-medium border-b-2 border-transparent transition-all;
+	color: var(--btn-ghost-text);
+}
+
+.tab:hover {
+	color: var(--btn-ghost-hover-text);
 }
 
 .tab.active {
-	@apply text-white border-white;
+	color: var(--input-text);
+	border-color: var(--input-text);
 }
 
 /* Fade in animation */
@@ -123,13 +192,13 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-	@apply bg-zinc-800;
+	background-color: var(--card-bg);
 }
 
 ::-webkit-scrollbar-thumb {
-	@apply bg-zinc-600;
+	background-color: var(--input-border);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	@apply bg-zinc-500;
+	background-color: var(--btn-ghost-text);
 }
