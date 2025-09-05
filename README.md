@@ -11,6 +11,7 @@ The project is currently WIP. The contract is deployed on Sepolia testnet and th
 ### Sepolia
 
 **Wayfinder:** 0x16717a3A721E30a139cB99D78eEE57b266114ACA
+
 **WayfinderManifoldExtension:** 0x41f961a72E1E5F03D4176f428664A1236531B4Ed
 
 ## TODO
