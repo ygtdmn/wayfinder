@@ -24,7 +24,7 @@ The project is currently WIP. The contract is deployed on Sepolia testnet and th
 ### Frontend
 
 - Remove hacky type declarations and useMemo usages, and improve overall TypeScript practices
-- Write proper documentation
+- Write proper documentation and README.md
 - If extension is registered, fix asking to register again
 - Properly implement collector zone
 - In collector zone, automatically discover owned NFTs created with Wayfinder
@@ -32,5 +32,8 @@ The project is currently WIP. The contract is deployed on Sepolia testnet and th
 - Test both ERC721 and ERC1155 contracts
 - Implement meta tags and favicon
 - Remove vibecoded sloppy stuff
+- Migrate to Next.js
+- Update homepage to make the app even more understandable
+- Ensure that when switching wallets, data from the previous wallet is cleared from local memory and the new wallet's data is properly loaded and displayed.
 
 Feel free to open issues or send pull requests. Also, if you're interested in being a maintainer please contact me on X or Discord (username: ygtdmn).
