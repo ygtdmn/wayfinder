@@ -34,7 +34,7 @@ export default function Footer({ isDarkMode }: FooterProps) {
 						and released under the{" "}
 						<span className={isDarkMode ? "text-zinc-200" : "text-zinc-800"}>
 							<a
-								href="https://github.com/ygtdmn/multiplex/blob/main/LICENSE.md"
+								href="https://github.com/ygtdmn/wayfinder/blob/main/LICENSE.md"
 								target="_blank"
 								rel="noopener noreferrer"
 								className={
@@ -50,7 +50,7 @@ export default function Footer({ isDarkMode }: FooterProps) {
 					</p>
 					<div className="flex items-center gap-4">
 						<a
-							href="https://github.com/ygtdmn/multiplex"
+							href="https://github.com/ygtdmn/wayfinder"
 							target="_blank"
 							rel="noopener noreferrer"
 							className={
