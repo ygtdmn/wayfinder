@@ -52,6 +52,7 @@ export function useManifoldAuth() {
 	const [token, setToken] = useState("");
 	const [session, setSession] = useState("");
 	const [isAuthenticating, setIsAuthenticating] = useState(false);
+	const [authenticatedAddress, setAuthenticatedAddress] = useState<string | null>(null);
 
 	// Initialize from cookies on mount
 	useEffect(() => {
@@ -67,6 +68,22 @@ export function useManifoldAuth() {
 			if (sessionToken) setSession(sessionToken);
 		}
 	}, []);
+
+	// Set authenticated address when we have both tokens and address
+	useEffect(() => {
+		if (token && session && address) {
+			setAuthenticatedAddress(address);
+		}
+	}, [token, session, address]);
+
+	// Clear authentication state when wallet address changes
+	useEffect(() => {
+		// Clear tokens when address changes (wallet switch)
+		clearAuthCookies();
+		setToken("");
+		setSession("");
+		setAuthenticatedAddress(null);
+	}, [address]);
 
 	const authenticate = async () => {
 		if (!address || !chainId || isAuthenticating) return;
@@ -160,6 +177,10 @@ export function useManifoldAuth() {
 			);
 			const sessionData = await sessionResponse.json();
 			if (!sessionResponse.ok) {
+				// Handle specific "User not found" error with friendly message
+				if (sessionResponse.status === 400 && sessionData.error === "User not found") {
+					throw new Error("User not registered with Manifold. Please register at studio.manifold.xyz first.");
+				}
 				throw new Error(
 					`Session request failed: ${sessionResponse.status} - ${JSON.stringify(
 						sessionData
@@ -177,6 +198,7 @@ export function useManifoldAuth() {
 
 			setToken(accessToken);
 			setSession(sessionToken);
+			setAuthenticatedAddress(address);
 			return { token: accessToken, session: sessionToken };
 		} catch (error) {
 			console.error("Manifold authentication error:", error);
@@ -190,12 +212,13 @@ export function useManifoldAuth() {
 		clearAuthCookies();
 		setToken("");
 		setSession("");
+		setAuthenticatedAddress(null);
 	};
 
 	return {
 		token,
 		session,
-		isAuthenticated: !!(token && session),
+		isAuthenticated: !!(token && session && authenticatedAddress === address),
 		isAuthenticating,
 		authenticate,
 		logout,

@@ -38,6 +38,7 @@ export default function Collections() {
 	const [userRole, setUserRole] = useState<"creator" | "collector" | null>(
 		null
 	);
+	const [authError, setAuthError] = useState<string | null>(null);
 	const { isDarkMode, toggleTheme } = useTheme();
 
 	// Check if extension is registered with Manifold
@@ -83,6 +84,13 @@ export default function Collections() {
 	useEffect(() => {
 		setResolved(null);
 	}, [creatorInput]);
+
+	// Clear discovered collections when wallet address changes
+	useEffect(() => {
+		setDiscovered([]);
+		setResolved(null);
+		setAuthError(null);
+	}, [address]);
 
 	const checkCreator = async () => {
 		if (!address) return;
@@ -518,7 +526,14 @@ export default function Collections() {
 													automatically
 												</p>
 												<button
-													onClick={authenticate}
+													onClick={async () => {
+														try {
+															setAuthError(null);
+															await authenticate();
+														} catch (error) {
+															setAuthError(error instanceof Error ? error.message : 'Authentication failed');
+														}
+													}}
 													disabled={isAuthenticating}
 													className="btn-primary text-sm"
 												>
@@ -526,6 +541,31 @@ export default function Collections() {
 														? "Signing..."
 														: "Sign in to Manifold"}
 												</button>
+												{authError && (
+													<div className={`mt-4 p-3 rounded-lg border ${
+														isDarkMode 
+															? "bg-red-900 bg-opacity-20 border-red-500 border-opacity-30" 
+															: "bg-red-50 border-red-300"
+													}`}>
+														<p className={`text-sm ${
+															isDarkMode ? "text-red-300" : "text-red-800"
+														}`}>
+															{authError}
+														</p>
+														{authError.includes("not registered") && (
+															<a 
+																href="https://studio.manifold.xyz" 
+																target="_blank" 
+																rel="noopener noreferrer"
+																className={`text-sm underline mt-2 inline-block ${
+																	isDarkMode ? "text-red-200" : "text-red-600"
+																}`}
+															>
+																Register at studio.manifold.xyz →
+															</a>
+														)}
+													</div>
+												)}
 												<p
 													className={`text-sm ${
 														isDarkMode ? "text-zinc-500" : "text-zinc-500"

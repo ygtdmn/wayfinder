@@ -23,12 +23,11 @@ The project is currently WIP. The contract is deployed on Sepolia testnet and th
 
 ### Frontend
 
-- Write proper documentation and README.md
-- In collector zone, automatically discover owned NFTs created with Wayfinder
-- Test both ERC721 and ERC1155 contracts
-- Implement meta tags and favicon
 - Migrate to Next.js
 - Update homepage to make the app even more understandable
-- Ensure that when switching wallets, data from the previous wallet is cleared from local memory and the new wallet's data is properly loaded and displayed.
+- Test both ERC721 and ERC1155 contracts
+- In collector zone, automatically discover owned NFTs created with Wayfinder
+- Implement meta tags and favicon
+- Write proper documentation and README.md
 
 Feel free to open issues or send pull requests. Also, if you're interested in being a maintainer please contact me on X or Discord (username: ygtdmn).
