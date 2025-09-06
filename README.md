@@ -24,7 +24,6 @@ The project is currently WIP. The contract is deployed on Sepolia testnet and th
 ### Frontend
 
 - Migrate to Next.js
-- Update homepage to make the app even more understandable
 - Test both ERC721 and ERC1155 contracts
 - In collector zone, automatically discover owned NFTs created with Wayfinder
 - Implement meta tags and favicon
