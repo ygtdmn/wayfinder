@@ -85,6 +85,9 @@ export default function Update() {
 		hash,
 	});
 
+	// Track which action is currently being performed
+	const [currentAction, setCurrentAction] = useState<string | null>(null);
+
 	// Read token data from contract
 	const {
 		data: tokenData,
@@ -425,6 +428,7 @@ export default function Update() {
 	// Contract interaction functions
 	const updateMetadata = () => {
 		if (!metadataJson) return;
+		setCurrentAction("updateMetadata");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -435,6 +439,7 @@ export default function Update() {
 
 	const updateThumbnail = () => {
 		if (!thumbnailFile || thumbChunks.length === 0) return;
+		setCurrentAction("updateThumbnail");
 		const thumbnail = {
 			kind: 0, // ON_CHAIN
 			onChain: {
@@ -462,6 +467,7 @@ export default function Update() {
 
 	const addArtworkUri = () => {
 		if (!newArtworkUri.trim()) return;
+		setCurrentAction("addArtworkUri");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -472,6 +478,7 @@ export default function Update() {
 	};
 
 	const removeArtworkUri = (index: number) => {
+		setCurrentAction("removeArtworkUri");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -492,6 +499,7 @@ export default function Update() {
 
 	const updateOffChainThumbnail = () => {
 		if (thumbnailUriList.length === 0) return;
+		setCurrentAction("updateOffChainThumbnail");
 		console.log("Updating off-chain thumbnail URIs:", thumbnailUriList);
 		console.log("Selected thumbnail index:", selectedThumbnailIndex);
 
@@ -518,6 +526,7 @@ export default function Update() {
 	};
 
 	const updateDisplayMode = () => {
+		setCurrentAction("updateDisplayMode");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -527,6 +536,7 @@ export default function Update() {
 	};
 
 	const updateArtworkSelection = () => {
+		setCurrentAction("updateArtworkSelection");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -539,6 +549,7 @@ export default function Update() {
 
 	const updateHtmlTemplate = () => {
 		if (!htmlTemplateFile || htmlTemplateChunks.length === 0) return;
+		setCurrentAction("updateHtmlTemplate");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -549,6 +560,7 @@ export default function Update() {
 
 	const revokeSelectedPermissions = () => {
 		if (!hasPermissionsToRevoke) return;
+		setCurrentAction("revokeSelectedPermissions");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -568,6 +580,7 @@ export default function Update() {
 	};
 
 	const revokeAllPermissions = () => {
+		setCurrentAction("revokeAllPermissions");
 		writeContract({
 			abi: wayfinderAbi,
 			address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
@@ -608,8 +621,16 @@ export default function Update() {
 			refetchTokenData();
 			refetchArtworkUris();
 			refetchThumbnailUris();
+			setCurrentAction(null); // Clear current action on success
 		}
 	}, [isSuccess, refetchTokenData, refetchArtworkUris, refetchThumbnailUris]);
+
+	// Clear current action on error
+	useEffect(() => {
+		if (writeError || receiptError) {
+			setCurrentAction(null);
+		}
+	}, [writeError, receiptError]);
 
 	if (!creator) {
 		return (
@@ -947,7 +968,7 @@ export default function Update() {
 														!!simulateMetadataError
 													}
 												>
-													{isPending || isConfirming
+													{(isPending || isConfirming) && currentAction === "updateMetadata"
 														? "Updating..."
 														: "Update Metadata"}
 												</button>
@@ -977,7 +998,7 @@ export default function Update() {
 													}
 												>
 													<option value={0}>Image</option>
-													<option value={1}>Interactive HTML</option>
+													<option value={1}>Smart HTML</option>
 												</select>
 											</div>
 											{simulateDisplayError && (
@@ -999,7 +1020,7 @@ export default function Update() {
 													!!simulateDisplayError || isPending || isConfirming
 												}
 											>
-												{isPending || isConfirming
+												{(isPending || isConfirming) && currentAction === "updateDisplayMode"
 													? "Updating..."
 													: "Update Display Mode"}
 											</button>
@@ -1008,30 +1029,33 @@ export default function Update() {
 								)}
 
 								{/* Artwork URI Management */}
-								<div className="card">
-									<h3
-										className={`text-lg font-semibold ${
-											isDarkMode ? "text-zinc-100" : "text-zinc-900"
-										} mb-4`}
-									>
-										Artwork URIs
-									</h3>
-									<div className="space-y-4">
-										<div className="flex gap-2">
-											<input
-												className="input-field flex-1"
-												placeholder="ipfs://... or https://..."
-												value={newArtworkUri}
-												onChange={(e) => setNewArtworkUri(e.target.value)}
-											/>
-											<button
-												type="button"
-												onClick={addArtworkUri}
-												className="btn-primary"
-											>
-												Add
-											</button>
-										</div>
+								{(hasArtistAddRemovePermission || hasArtistChooseUrisPermission) && (
+									<div className="card">
+										<h3
+											className={`text-lg font-semibold ${
+												isDarkMode ? "text-zinc-100" : "text-zinc-900"
+											} mb-4`}
+										>
+											Artwork URIs
+										</h3>
+										<div className="space-y-4">
+											{hasArtistAddRemovePermission && (
+												<div className="flex gap-2">
+													<input
+														className="input-field flex-1"
+														placeholder="ipfs://... or https://..."
+														value={newArtworkUri}
+														onChange={(e) => setNewArtworkUri(e.target.value)}
+													/>
+													<button
+														type="button"
+														onClick={addArtworkUri}
+														className="btn-primary"
+													>
+														Add
+													</button>
+												</div>
+											)}
 
 										{
 											(artistArtworkUris && artistArtworkUris.length > 0 && (
@@ -1048,13 +1072,15 @@ export default function Update() {
 																<span className="flex-1 text-sm font-mono ${isDarkMode ? 'text-zinc-300' : 'text-zinc-700'} break-all">
 																	{uri}
 																</span>
-																<button
-																	type="button"
-																	onClick={() => removeArtworkUri(index)}
-																	className="btn-ghost text-red-400 hover:text-red-300 p-1"
-																>
-																	✕
-																</button>
+																{hasArtistAddRemovePermission && (
+																	<button
+																		type="button"
+																		onClick={() => removeArtworkUri(index)}
+																		className="btn-ghost text-red-400 hover:text-red-300 p-1"
+																	>
+																		✕
+																	</button>
+																)}
 															</div>
 														)
 													)}
@@ -1091,13 +1117,17 @@ export default function Update() {
 														type="button"
 														onClick={updateArtworkSelection}
 														className="btn-secondary mt-2"
+														disabled={isPending || isConfirming}
 													>
-														Update Selection
+														{(isPending || isConfirming) && currentAction === "updateArtworkSelection"
+															? "Updating..."
+															: "Update Selection"}
 													</button>
 												</div>
 											)}
+										</div>
 									</div>
-								</div>
+								)}
 
 								{/* Thumbnail Management */}
 								{hasArtistUpdateThumbPermission && (
@@ -1204,7 +1234,7 @@ export default function Update() {
 														isConfirming
 													}
 												>
-													{isPending || isConfirming
+													{(isPending || isConfirming) && currentAction === "updateThumbnail"
 														? "Updating..."
 														: "Update Thumbnail"}
 												</button>
@@ -1319,7 +1349,7 @@ export default function Update() {
 														!!simulateThumbnailError
 													}
 												>
-													{isPending || isConfirming
+													{(isPending || isConfirming) && currentAction === "updateOffChainThumbnail"
 														? "Updating..."
 														: "Update Thumbnail URIs"}
 												</button>
@@ -1503,7 +1533,7 @@ export default function Update() {
 													!!simulateHtmlTemplateError
 												}
 											>
-												{isPending || isConfirming
+												{(isPending || isConfirming) && currentAction === "updateHtmlTemplate"
 													? "Updating..."
 													: "Update HTML Template"}
 											</button>
@@ -1770,7 +1800,7 @@ export default function Update() {
 														!!simulateRevokePermissionsError
 													}
 												>
-													{isPending || isConfirming
+													{(isPending || isConfirming) && currentAction === "revokeSelectedPermissions"
 														? "Revoking..."
 														: "Revoke Selected Permissions"}
 												</button>
@@ -1809,7 +1839,7 @@ export default function Update() {
 														!!simulateRevokeAllPermissionsError
 													}
 												>
-													{isPending || isConfirming
+													{(isPending || isConfirming) && currentAction === "revokeAllPermissions"
 														? "Revoking..."
 														: "Revoke All Artist Permissions"}
 												</button>
@@ -1980,7 +2010,7 @@ export default function Update() {
 									Display Mode
 								</h3>
 								<p className="${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}">
-									Switch between Image and Interactive HTML modes
+									Switch between Image and Smart HTML modes
 								</p>
 							</div>
 

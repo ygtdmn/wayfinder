@@ -4,9 +4,11 @@ import {
 	useWaitForTransactionReceipt,
 	useSimulateContract,
 	useAccount,
+	useChainId,
 } from "wagmi";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import type { Address } from "viem";
+import { decodeEventLog } from "viem";
 import { wayfinderExtensionAbi } from "../abis/wayfinder-manifold-extension-abi";
 import fastlz from "../lib/fastlz";
 import { sha256 } from "js-sha256";
@@ -29,6 +31,7 @@ export default function Mint() {
 	const [sp] = useSearchParams();
 	const navigate = useNavigate();
 	const { address: connectedAddress } = useAccount();
+	const chainId = useChainId();
 	const creator = (sp.get("creator") || "") as Address;
 	const type = sp.get("type") || "Unknown";
 
@@ -95,12 +98,29 @@ export default function Mint() {
 		error: writeError,
 	} = useWriteContract();
 	const {
+		data: receipt,
 		isLoading: isConfirming,
 		isSuccess,
 		error: receiptError,
 	} = useWaitForTransactionReceipt({
 		hash,
 	});
+
+	// State to track minted token ID
+	const [mintedTokenId, setMintedTokenId] = useState<string | null>(null);
+
+	// Function to get Manifold network identifier from chain ID
+	const getManifoldNetwork = (chainId: number): string => {
+		const chainIdToNetwork: Record<number, string> = {
+			1: "ethereum", // Ethereum Mainnet
+			11155111: "sepolia", // Sepolia Testnet
+			8453: "base", // Base
+			10: "optimism", // Optimism
+			137: "polygon", // Polygon (if supported)
+			42161: "arbitrum", // Arbitrum (if supported)
+		};
+		return chainIdToNetwork[chainId] || "ethereum"; // Default to ethereum if unknown
+	};
 
 	// Debug transaction errors
 	useEffect(() => {
@@ -119,6 +139,38 @@ export default function Mint() {
 			console.error("Error message:", receiptError.message);
 		}
 	}, [receiptError]);
+
+	// Extract token ID from transaction receipt
+	useEffect(() => {
+		if (receipt && receipt.logs && !mintedTokenId) {
+			try {
+				// Look for TokenMintedERC721 or TokenMintedERC1155 events
+				for (const log of receipt.logs) {
+					try {
+						const decoded = decodeEventLog({
+							abi: wayfinderExtensionAbi,
+							data: log.data,
+							topics: log.topics,
+						});
+
+						if (decoded.eventName === "TokenMintedERC721" || decoded.eventName === "TokenMintedERC1155") {
+							const tokenId = (decoded.args as { tokenId: bigint }).tokenId;
+							if (tokenId) {
+								setMintedTokenId(tokenId.toString());
+								console.log("Extracted token ID:", tokenId.toString());
+								break;
+							}
+						}
+					} catch {
+						// Skip logs that don't match our ABI
+						continue;
+					}
+				}
+			} catch (error) {
+				console.error("Error extracting token ID from receipt:", error);
+			}
+		}
+	}, [receipt, mintedTokenId]);
 
 	const handleArtworkFile = useCallback(async (file: File) => {
 		setArtworkFile(file);
@@ -574,6 +626,12 @@ export default function Mint() {
 	}
 
 	if (isSuccess) {
+		// Generate Manifold gallery link with dynamic network detection
+		const network = getManifoldNetwork(chainId);
+		const manifoldLink = mintedTokenId 
+			? `https://gallery.manifold.xyz/${network}/${creator}/${mintedTokenId}`
+			: null;
+
 		return (
 			<div className="max-w-2xl mx-auto text-center py-12 animate-fade-in">
 				<div className="inline-flex items-center justify-center w-16 h-16 bg-success bg-opacity-10 mb-4">
@@ -598,9 +656,54 @@ export default function Mint() {
 				>
 					Artwork Created!
 				</h2>
-				<p className={`${isDarkMode ? "text-zinc-400" : "text-zinc-600"} mb-8`}>
+				<p className={`${isDarkMode ? "text-zinc-400" : "text-zinc-600"} mb-4`}>
 					Your artwork has been successfully minted.
 				</p>
+				
+				{manifoldLink && (
+					<div className={`mb-6 p-4 ${
+						isDarkMode 
+							? "bg-zinc-800/50 border border-zinc-700/50" 
+							: "bg-zinc-100 border border-zinc-300"
+					} rounded-lg`}>
+						<p className={`text-sm ${
+							isDarkMode ? "text-zinc-300" : "text-zinc-700"
+						} mb-3`}>
+							View your artwork on Manifold Gallery:
+						</p>
+						<a
+							href={manifoldLink}
+							target="_blank"
+							rel="noopener noreferrer"
+							className={`inline-flex items-center gap-2 px-4 py-2 ${
+								isDarkMode
+									? "bg-zinc-700 hover:bg-zinc-600 text-zinc-200"
+									: "bg-zinc-200 hover:bg-zinc-300 text-zinc-800"
+							} rounded-lg transition-colors font-medium`}
+						>
+							<svg
+								className="w-4 h-4"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									strokeWidth={2}
+									d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+								/>
+							</svg>
+							Open in Manifold Gallery
+						</a>
+						<p className={`text-xs ${
+							isDarkMode ? "text-zinc-500" : "text-zinc-500"
+						} mt-2`}>
+							Network: {network.charAt(0).toUpperCase() + network.slice(1)} • Token ID: {mintedTokenId}
+						</p>
+					</div>
+				)}
+
 				<div className="flex gap-3 justify-center">
 					<button
 						onClick={() => navigate("/collections")}

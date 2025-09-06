@@ -461,7 +461,7 @@ export default function CollectorZone() {
 										onChange={(e) => setDisplayMode(Number(e.target.value))}
 									>
 										<option value={0}>Image</option>
-										<option value={1}>Interactive HTML</option>
+										<option value={1}>Smart HTML</option>
 									</select>
 									<p className="help-text">
 										Choose how the artwork is displayed by default

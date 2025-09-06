@@ -6,15 +6,11 @@ import Footer from "../components/Footer";
 
 export default function Home() {
 	const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-		why: true,
-		overview: true,
+		overview: false,
+		why: false,
 		uris: false,
-		lifecycle: true,
-		roles: false,
 		display: false,
-		resilience: false,
 		thumbnails: false,
-		integration: false,
 	});
 
 	const { isDarkMode, toggleTheme } = useTheme();
