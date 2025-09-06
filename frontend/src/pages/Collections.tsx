@@ -46,7 +46,7 @@ export default function Collections() {
 		resolved?.type === "ERC721"
 			? ierc721CreatorCoreAbi
 			: ierc1155CreatorCoreAbi;
-	const { data: extensions } = useReadContract({
+	const { data: extensions, refetch: refetchExtensions } = useReadContract({
 		abi: coreAbi,
 		address: resolved?.address,
 		functionName: "getExtensions",
@@ -62,7 +62,7 @@ export default function Collections() {
 			: false;
 
 	// Check if contract is registered with Wayfinder
-	const { data: isContractRegistered } = useReadContract({
+	const { data: isContractRegistered, refetch: refetchContractRegistration } = useReadContract({
 		abi: wayfinderAbi,
 		address: import.meta.env.VITE_WAYFINDER_ADDRESS as Address,
 		functionName: "isContractOperator",
@@ -709,8 +709,12 @@ export default function Collections() {
 												<RegisterExtension
 													creator={resolved.address}
 													type={resolved.type}
+													onSuccess={refetchExtensions}
 												/>
-												<RegisterWayfinder creator={resolved.address} />
+												<RegisterWayfinder 
+													creator={resolved.address}
+													onSuccess={refetchContractRegistration}
+												/>
 											</div>
 										)}
 

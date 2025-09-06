@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
 	useWriteContract,
 	useWaitForTransactionReceipt,
@@ -10,9 +11,10 @@ import { useTheme } from "../hooks/useTheme";
 
 interface RegisterWayfinderProps {
 	creator: Address;
+	onSuccess?: () => void;
 }
 
-export default function RegisterWayfinder({ creator }: RegisterWayfinderProps) {
+export default function RegisterWayfinder({ creator, onSuccess }: RegisterWayfinderProps) {
 	const { isDarkMode } = useTheme();
 	const wayfinderAddress = import.meta.env.VITE_WAYFINDER_ADDRESS as Address;
 	const wayfinderExtensionAddress = import.meta.env
@@ -49,6 +51,13 @@ export default function RegisterWayfinder({ creator }: RegisterWayfinderProps) {
 			args: [creator, wayfinderExtensionAddress],
 		});
 	};
+
+	// Call onSuccess callback when transaction is successful
+	useEffect(() => {
+		if (isSuccess && onSuccess) {
+			onSuccess();
+		}
+	}, [isSuccess, onSuccess]);
 
 	// Show success message for recent transaction
 	if (isSuccess) {

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
 	useWriteContract,
 	useWaitForTransactionReceipt,
@@ -12,11 +13,13 @@ import { useTheme } from "../hooks/useTheme";
 interface RegisterExtensionProps {
 	creator: Address;
 	type: "ERC721" | "ERC1155";
+	onSuccess?: () => void;
 }
 
 export default function RegisterExtension({
 	creator,
 	type,
+	onSuccess,
 }: RegisterExtensionProps) {
 	const { isDarkMode } = useTheme();
 	const baseURI = "";
@@ -62,6 +65,13 @@ export default function RegisterExtension({
 			args: [wayfinderExtensionAddress, baseURI],
 		});
 	};
+
+	// Call onSuccess callback when transaction is successful
+	useEffect(() => {
+		if (isSuccess && onSuccess) {
+			onSuccess();
+		}
+	}, [isSuccess, onSuccess]);
 
 	// Show success message for recent transaction
 	if (isSuccess) {
